@@ -6,7 +6,6 @@ const app = require('../app');
 
 // Bloque principal de pruebas
 describe('HalTest MCP API Tests', () => {
-
     // Prueba #1: GET /api/status - Verifica el estado del servidor
     test('1. GET /api/status debe devolver 200 con status: ok', async () => {
         const response = await request(app)
@@ -57,7 +56,7 @@ describe('HalTest MCP API Tests', () => {
         // Verifica que SOLO contenga la clave 'click'
         expect(Object.keys(response.body)).toEqual(['click']);
         // Verifica que el campo selector sea requerido
-        const selectorField = response.body.click.find(f => f.name === 'selector');
+        const selectorField = response.body.click.find((f) => f.name === 'selector');
         expect(selectorField.required).toBe(true);
     });
 
@@ -72,7 +71,7 @@ describe('HalTest MCP API Tests', () => {
         // Verifica que SOLO contenga la clave 'resize_viewport'
         expect(Object.keys(response.body)).toEqual(['resize_viewport']);
         // Verifica que tenga el campo 'width'
-        expect(response.body.resize_viewport.some(f => f.name === 'width')).toBe(true);
+        expect(response.body.resize_viewport.some((f) => f.name === 'width')).toBe(true);
     });
 
     // Prueba #7: GET /api/nodes/operations?op=operacion-no-existe - Petición inválida (404)
@@ -83,7 +82,10 @@ describe('HalTest MCP API Tests', () => {
             .expect('Content-Type', /json/)
             .expect(404);
 
-        expect(response.body).toHaveProperty('error', "Operación 'operacion-no-existe' no encontrada.");
+        expect(response.body).toHaveProperty(
+            'error',
+            "Operación 'operacion-no-existe' no encontrada.",
+        );
     });
 
     // Prueba #8: GET /api/project/load?id=PRJ-42 - Carga de Mock de Proyecto exitosa
@@ -114,9 +116,7 @@ describe('HalTest MCP API Tests', () => {
     test('10. POST /api/data con payload debe devolver status success', async () => {
         const testPayload = {
             flowId: 'temp-001',
-            nodes: [
-                { id: 'n1', type: 'type_text', data: { selector: '#user', text: 'test' } },
-            ],
+            nodes: [{ id: 'n1', type: 'type_text', data: { selector: '#user', text: 'test' } }],
             edges: [{ source: 'start', target: 'n1' }],
         };
 
@@ -128,6 +128,8 @@ describe('HalTest MCP API Tests', () => {
 
         expect(response.body.status).toBe('success');
         expect(response.body.message).toContain('recibidos y procesados correctamente');
-        expect(response.body.data_keys_received).toEqual(expect.arrayContaining(['flowId', 'nodes', 'edges']));
+        expect(response.body.data_keys_received).toEqual(
+            expect.arrayContaining(['flowId', 'nodes', 'edges']),
+        );
     });
 });

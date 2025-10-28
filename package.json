@@ -3,11 +3,16 @@
   "version": "1.0.0",
   "description": "Backend for the HalTest project",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "dev": "node --watch app.js",
     "start": "node app.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "api:test": "jest --detectOpenHandles --verbose"
+    "api:test": "jest --detectOpenHandles --verbose",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.js\" \"!node_modules/**\"",
+    "prepare": "husky"
   },
   "keywords": [],
   "author": "andresguc <andresguc@gmail.com>",
@@ -19,7 +24,23 @@
     "express": "^5.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.38.0",
+    "eslint": "^9.38.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-jest": "^29.0.1",
+    "eslint-plugin-prettier": "^5.5.4",
+    "globals": "^16.4.0",
+    "husky": "^9.1.7",
     "jest": "^30.2.0",
+    "lint-staged": "^16.2.6",
+    "prettier": "^3.6.2",
     "supertest": "^7.1.4"
+  },
+  "lint-staged": {
+    "*.js": [
+      "npm run format",
+      "npm run lint:fix",
+      "git add"
+    ]
   }
 }
