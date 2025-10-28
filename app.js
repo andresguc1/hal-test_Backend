@@ -2,6 +2,7 @@
 // ==========================
 // 🚀 HaltTest Backend Server
 // ==========================
+require('dotenv').config();
 
 const express = require('express');
 const app = express();
@@ -19,5 +20,6 @@ app.get('/', (req, res) => {
 
 // Servidor en marcha
 app.listen(PORT, () => {
+    console.log(process.env.PORT); 
     console.log(`✅ HaltTest server is running at: http://localhost:${PORT}`);
 });
