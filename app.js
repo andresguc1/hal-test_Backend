@@ -264,3 +264,6 @@ app.listen(PORT, () => {
     console.log(`🚀 Servidor HaltTest corriendo en http://localhost:${PORT}`);
     console.log(`(Puerto: ${PORT})`);
 });
+
+// Exportar la instancia de la aplicación para que SuperTest pueda usarla
+module.exports = app;

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch app.js",
     "start": "node app.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "api:test": "jest --detectOpenHandles --verbose"
   },
   "keywords": [],
   "author": "andresguc <andresguc@gmail.com>",
@@ -16,5 +17,9 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0",
+    "supertest": "^7.1.4"
   }
 }
