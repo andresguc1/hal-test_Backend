@@ -5,24 +5,32 @@
 
 import 'dotenv/config'; // Forma moderna de cargar dotenv en ESM
 import express from 'express';
-import bodyParser from 'body-parser';
 import cors from 'cors';
 import { apiLimiter, helmetMiddleware } from './middlewares/security.js';
+import validate from './middlewares/validator.js';
+import openUrlBodySchema from './schemas/open_url/body.js';
+import apiRouter from './routes/api.router.js';
+import errorHandler from './middlewares/errorHandler.js';
 
 const app = express();
-const PORT = process.env.PORT || 2001; // PUERTO CAMBIADO A 2001
+const PORT = process.env.PORT || 2001;
 
-// 1. Middlewares de Seguridad (Aplicar primero)
+// --- 1. MIDDLEWARES DE SEGURIDAD (Aplicar primero) ---
 app.use(helmetMiddleware);
-app.use(apiLimiter); // Aplicar a todas las rutas
+app.use(apiLimiter); // Rate limiting en todas las rutas
 
-// 2. Middlewares de Formato
-app.use(cors());
-app.use(express.json()); // Usar express.json en lugar de body-parser
+// --- 2. MIDDLEWARES DE FORMATO ---
+app.use(
+    cors({
+        origin: '*',
+        methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    }),
+);
+app.use(express.json()); // Parser JSON nativo de Express
+app.use(express.urlencoded({ extended: true }));
 
-// 🔄 Importa los loggers (¡ACTUALIZADO para ESM!)
+// --- 3. LOGGERS ---
 import { developmentLogger, productionLogger } from './middlewares/logger.js';
-// NOTA: Se usa 'import' en lugar de 'require' y se añade la extensión '.js'
 
 // Aplica el logger según el ambiente
 if (process.env.NODE_ENV === 'production') {
@@ -33,7 +41,7 @@ if (process.env.NODE_ENV === 'production') {
 
 // --- MOCKS DE DATOS DEL FRAMEWORK PLAYWRIGHT MCP ---
 
-// 1. Mock de Categorías (sin cambios, solo una representación simplificada)
+// 1. Mock de Categorías
 const mockCategories = {
     browser_management: {
         label: 'Navegador',
@@ -100,9 +108,52 @@ const mockCategories = {
     },
 };
 
-// 2. Mock de Operaciones (Esquema JSON COMPLETO)
+// 2. Mock de Operaciones (Esquema JSON COMPLETO de campos de entrada para cada nodo)
 const allNodeFieldConfigs = {
-    // [TODOS LOS ESQUEMAS PROPORCIONADOS (open_url, resize_viewport, wait_conditional, click, type_text, select_option, submit_form, scroll, drag_drop, upload_file, wait_visible, wait_navigation, wait_network, take_screenshot, save_dom, log_errors, listen_events, intercept_request, mock_response) VAN AQUÍ]
+    // --- BROWSER MANAGEMENT ---
+    launch_browser: [
+        {
+            name: 'browserType',
+            label: 'Tipo de navegador',
+            type: 'select',
+            options: [
+                { value: 'chromium', label: 'Chromium' },
+                { value: 'firefox', label: 'Firefox' },
+                { value: 'webkit', label: 'WebKit (Safari)' },
+            ],
+            defaultValue: 'chromium',
+            required: true,
+        },
+        {
+            name: 'headless',
+            label: 'Modo headless (sin interfaz)',
+            type: 'checkbox',
+            defaultValue: true,
+        },
+        {
+            name: 'slowMo',
+            label: 'Ralentizar acciones (ms)',
+            type: 'number',
+            placeholder: 'Ej: 50. Retrasa cada acción para debug.',
+            defaultValue: 0,
+            min: 0,
+        },
+        {
+            name: 'args',
+            label: 'Argumentos del navegador',
+            type: 'text',
+            placeholder: 'Ej: --start-maximized, --disable-notifications. Separar por comas.',
+        },
+        {
+            name: 'executablePath',
+            label: 'Ruta del ejecutable (personalizado)',
+            type: 'text',
+            placeholder: 'Ej: /ruta/a/chrome.exe. Usar ejecutable de navegador personalizado.',
+        },
+    ],
+    close_browser: [],
+    manage_tabs: [], // Pendiente de implementación de campos
+
     open_url: [
         {
             name: 'url',
@@ -171,46 +222,8 @@ const allNodeFieldConfigs = {
                 'Alto del viewport en píxeles. Se usa si "Emulación de Dispositivo" es vacío.',
         },
     ],
-    //... (Resto de operaciones) ...
-    wait_conditional: [
-        {
-            name: 'conditionScript',
-            label: 'Script de Condición (JavaScript)',
-            type: 'textarea',
-            placeholder:
-                'Ej: return document.querySelector("#status").textContent === "Completado";',
-            required: true,
-            description:
-                'Código JavaScript que se ejecuta repetidamente. Debe devolver true cuando la condición se cumpla.',
-        },
-        {
-            name: 'polling',
-            label: 'Intervalo de Evaluación (ms)',
-            type: 'number',
-            placeholder: 'Ej: 250',
-            defaultValue: 100,
-            min: 1,
-            description:
-                'Intervalo de tiempo en milisegundos con el que se evaluará el script de condición.',
-        },
-        {
-            name: 'timeout',
-            label: 'Tiempo de Espera Máximo (ms)',
-            type: 'number',
-            placeholder: 'Ej: 15000',
-            defaultValue: 30000,
-            min: 1,
-            description: 'Tiempo máximo total que el test esperará a que el script devuelva true.',
-        },
-        {
-            name: 'args',
-            label: 'Argumentos para el Script',
-            type: 'text',
-            placeholder: 'Ej: "#miSelector", "valorBuscado" (Separar por comas)',
-            required: false,
-            description: 'Argumentos que se pasarán al script para mayor reusabilidad.',
-        },
-    ],
+
+    // --- USER SIMULATION ---
     click: [
         {
             name: 'selector',
@@ -274,6 +287,7 @@ const allNodeFieldConfigs = {
                 'Si está activo, fuerza el clic aunque el elemento esté oculto o cubierto por otro elemento.',
         },
     ],
+
     type_text: [
         {
             name: 'selector',
@@ -318,6 +332,7 @@ const allNodeFieldConfigs = {
             description: 'Tiempo máximo para esperar que el campo de texto sea interactuable.',
         },
     ],
+
     select_option: [
         {
             name: 'selector',
@@ -360,6 +375,7 @@ const allNodeFieldConfigs = {
             description: 'Tiempo máximo para esperar que el dropdown esté interactuable.',
         },
     ],
+
     submit_form: [
         {
             name: 'selector',
@@ -389,6 +405,7 @@ const allNodeFieldConfigs = {
                 'Tiempo máximo para que el elemento de submit sea interactuable y/o se complete la navegación.',
         },
     ],
+
     scroll: [
         {
             name: 'selector',
@@ -437,6 +454,7 @@ const allNodeFieldConfigs = {
             description: 'Define si el scroll es instantáneo ("auto") o animado ("smooth").',
         },
     ],
+
     drag_drop: [
         {
             name: 'sourceSelector',
@@ -471,6 +489,7 @@ const allNodeFieldConfigs = {
             description: 'Si está activo, fuerza el inicio y fin del arrastre.',
         },
     ],
+
     upload_file: [
         {
             name: 'selector',
@@ -498,6 +517,48 @@ const allNodeFieldConfigs = {
             description: 'Tiempo máximo para esperar que el input file sea interactuable.',
         },
     ],
+
+    // --- SYNCHRONIZATION ---
+    wait_conditional: [
+        {
+            name: 'conditionScript',
+            label: 'Script de Condición (JavaScript)',
+            type: 'textarea',
+            placeholder:
+                'Ej: return document.querySelector("#status").textContent === "Completado";',
+            required: true,
+            description:
+                'Código JavaScript que se ejecuta repetidamente. Debe devolver true cuando la condición se cumpla.',
+        },
+        {
+            name: 'polling',
+            label: 'Intervalo de Evaluación (ms)',
+            type: 'number',
+            placeholder: 'Ej: 250',
+            defaultValue: 100,
+            min: 1,
+            description:
+                'Intervalo de tiempo en milisegundos con el que se evaluará el script de condición.',
+        },
+        {
+            name: 'timeout',
+            label: 'Tiempo de Espera Máximo (ms)',
+            type: 'number',
+            placeholder: 'Ej: 15000',
+            defaultValue: 30000,
+            min: 1,
+            description: 'Tiempo máximo total que el test esperará a que el script devuelva true.',
+        },
+        {
+            name: 'args',
+            label: 'Argumentos para el Script',
+            type: 'text',
+            placeholder: 'Ej: "#miSelector", "valorBuscado" (Separar por comas)',
+            required: false,
+            description: 'Argumentos que se pasarán al script para mayor reusabilidad.',
+        },
+    ],
+
     wait_visible: [
         {
             name: 'selector',
@@ -527,6 +588,7 @@ const allNodeFieldConfigs = {
                 'Si está activo, el framework intentará desplazar la página hasta el elemento antes de verificar su visibilidad.',
         },
     ],
+
     wait_navigation: [
         {
             name: 'url',
@@ -562,6 +624,7 @@ const allNodeFieldConfigs = {
                 'El evento que Playwright usará para determinar que la navegación ha finalizado.',
         },
     ],
+
     wait_network: [
         {
             name: 'idleTime',
@@ -592,6 +655,8 @@ const allNodeFieldConfigs = {
                 'Si está activo, considera todas las solicitudes (imágenes, CSS, JS) al determinar la inactividad.',
         },
     ],
+
+    // --- DIAGNOSTICS ---
     take_screenshot: [
         {
             name: 'selector',
@@ -651,6 +716,7 @@ const allNodeFieldConfigs = {
                 'Tiempo máximo para esperar que la página o el elemento estén listos para ser capturados.',
         },
     ],
+
     save_dom: [
         {
             name: 'selector',
@@ -689,6 +755,7 @@ const allNodeFieldConfigs = {
                 'Tiempo máximo para esperar que el contenido HTML del elemento (o página) se obtenga.',
         },
     ],
+
     log_errors: [
         {
             name: 'logToFile',
@@ -717,6 +784,7 @@ const allNodeFieldConfigs = {
                 'Tiempo en milisegundos que el listener de errores permanecerá activo. 0 es indefinidamente.',
         },
     ],
+
     listen_events: [
         {
             name: 'eventType',
@@ -770,6 +838,8 @@ const allNodeFieldConfigs = {
                 'Tiempo máximo que el listener permanecerá activo. 0 significa indefinidamente.',
         },
     ],
+
+    // --- NETWORK CONTROL ---
     intercept_request: [
         {
             name: 'urlPattern',
@@ -830,6 +900,7 @@ const allNodeFieldConfigs = {
                 'Tiempo máximo que la regla de interceptación permanecerá activa. 0 significa indefinidamente.',
         },
     ],
+
     mock_response: [
         {
             name: 'urlPattern',
@@ -886,19 +957,46 @@ const allNodeFieldConfigs = {
                 'Cabeceras HTTP adicionales que se añadirán a la respuesta simulada (debe ser JSON válido).',
         },
     ],
-    launch_browser: [
-        /* Esquema launch_browser va aquí */
-    ],
-    close_browser: [
-        /* Esquema close_browser va aquí */
-    ],
-    manage_tabs: [
-        /* Esquema manage_tabs (new_page/context) va aquí */
-    ],
-    // etc...
+
+    block_resource: [], // Pendiente de implementación de campos
+    modify_headers: [], // Pendiente de implementación de campos
+
+    // --- DOM MANIPULATION ---
+    find_element: [], // Pendiente de implementación de campos
+    get_set_content: [], // Pendiente de implementación de campos
+    wait_for_element: [], // Pendiente de implementación de campos
+    execute_js: [], // Pendiente de implementación de campos
+
+    // --- SESSION MANAGEMENT ---
+    manage_cookies: [], // Pendiente de implementación de campos
+    manage_storage: [], // Pendiente de implementación de campos
+    inject_tokens: [], // Pendiente de implementación de campos
+    persist_session: [], // Pendiente de implementación de campos
+
+    // --- TEST EXECUTION ---
+    create_context: [], // Pendiente de implementación de campos
+    cleanup_state: [], // Pendiente de implementación de campos
+    handle_hooks: [], // Pendiente de implementación de campos
+    control_exceptions: [], // Pendiente de implementación de campos
+
+    // --- FILE/DATA ---
+    read_data: [], // Pendiente de implementación de campos
+    save_results: [], // Pendiente de implementación de campos
+    handle_downloads: [], // Pendiente de implementación de campos
+
+    // --- LLM/AI ---
+    call_llm: [], // Pendiente de implementación de campos
+    generate_data: [], // Pendiente de implementación de campos
+    validate_semantic: [], // Pendiente de implementación de campos
+
+    // --- EXECUTION INTERFACE ---
+    run_tests: [], // Pendiente de implementación de campos
+    cli_params: [], // Pendiente de implementación de campos
+    return_code: [], // Pendiente de implementación de campos
+    integrate_ci: [], // Pendiente de implementación de campos
 };
 
-// 3. Mock de Datos de Proyecto Guardado (ejemplo de flujo)
+// 3. Mock de Datos de Proyecto Guardado
 const mockProjectData = {
     projectId: 'PRJ-42',
     projectName: 'Flujo de Login y Compra',
@@ -937,22 +1035,36 @@ const mockProjectData = {
     ],
 };
 
-// --- CONFIGURACIÓN DE EXPRESS Y MIDDLEWARES ---
+// --- 4. LÓGICA DE NEGOCIO (RUTAS API) ---
 
-app.use(
-    cors({
-        origin: '*',
-        methods: ['GET', 'POST', 'PUT', 'DELETE'],
+// Montar el router de API bajo el prefijo '/api'
+app.use('/api', apiRouter);
+
+// Ruta de prueba para el middleware de validación (POST /api/actions/open_url)
+app.post(
+    '/api/actions/open_url',
+    // 1. Middleware de Validación (usando Joi)
+    validate({
+        body: openUrlBodySchema,
     }),
-);
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
 
-// --- RUTAS API DEL FRAMEWORK MCP ---
+    // 2. Controlador de la Ruta
+    (req, res) => {
+        const { url, timeout } = req.body;
+
+        console.log(`✅ Ejecutando Open URL en: ${url} con timeout: ${timeout}ms`);
+
+        res.status(200).json({
+            success: true,
+            message: 'Validación exitosa y esquemas separados correctamente.',
+            data: req.body,
+        });
+    },
+);
 
 // 1. API: Obtener la estructura de categorías y nodos
 app.get('/api/nodes/categories', (req, res) => {
-    console.log('API: Devolviendo categorías de nodos MCP.');
+    console.log('📂 API: Devolviendo categorías de nodos MCP.');
     res.json(mockCategories);
 });
 
@@ -961,19 +1073,19 @@ app.get('/api/nodes/operations', (req, res) => {
     const operationName = req.query.op;
 
     if (operationName) {
-        console.log(`API: Devolviendo esquema para la operación: ${operationName}`);
+        console.log(`📋 API: Devolviendo esquema para la operación: ${operationName}`);
         const schema = allNodeFieldConfigs[operationName];
 
         if (schema) {
-            // Devuelve un objeto con solo la clave de la operación solicitada
             return res.json({ [operationName]: schema });
         } else {
-            return res.status(404).json({ error: `Operación '${operationName}' no encontrada.` });
+            return res.status(404).json({
+                error: `Operación '${operationName}' no encontrada.`,
+            });
         }
     }
 
-    // Si no se especifica 'op', devuelve todos los esquemas
-    console.log('API: Devolviendo todos los esquemas de operaciones.');
+    console.log('📋 API: Devolviendo todos los esquemas de operaciones.');
     res.json(allNodeFieldConfigs);
 });
 
@@ -982,11 +1094,11 @@ app.get('/api/project/load', (req, res) => {
     const projectId = req.query.id;
 
     if (projectId === mockProjectData.projectId) {
-        console.log(`API: Devolviendo datos de proyecto: ${projectId}`);
+        console.log(`📦 API: Devolviendo datos de proyecto: ${projectId}`);
         return res.json(mockProjectData);
     }
 
-    console.log(`API: Proyecto ID ${projectId} no encontrado (Devolviendo 404).`);
+    console.log(`❌ API: Proyecto ID ${projectId} no encontrado.`);
     res.status(404).json({ error: 'Proyecto no encontrado' });
 });
 
@@ -994,19 +1106,17 @@ app.get('/api/project/load', (req, res) => {
 app.post('/api/data', (req, res) => {
     const receivedData = req.body;
     console.log(
-        `API: Recibida solicitud POST en /api/data. Tamaño de datos: ${JSON.stringify(receivedData).length} bytes`,
+        `📥 API: Recibida solicitud POST en /api/data. Tamaño: ${JSON.stringify(receivedData).length} bytes`,
     );
 
-    // Simular procesamiento/guardado
     if (!receivedData || Object.keys(receivedData).length === 0) {
         return res.status(400).json({
             status: 'error',
-            message: 'No se recibieron datos en el cuerpo de la solicitud (body).',
+            message: 'No se recibieron datos en el cuerpo de la solicitud.',
             data: receivedData,
         });
     }
 
-    // Respuesta de éxito
     res.json({
         status: 'success',
         message: 'Flujo de trabajo o datos recibidos y procesados correctamente (Mock).',
@@ -1017,21 +1127,63 @@ app.post('/api/data', (req, res) => {
 
 // 5. API: Verificar estado del servidor
 app.get('/api/status', (req, res) => {
-    console.log('API: Solicitud de estado recibida.');
+    console.log('🔍 API: Solicitud de estado recibida.');
     res.json({
         status: 'ok',
-        message: 'HalTest API is up and running 🚀',
+        message: 'HaltTest API is up and running 🚀',
         version: '1.0.0-MCP',
         timestamp: new Date().toISOString(),
     });
 });
 
-// --- INICIO DEL SERVIDOR ---
+// ====================================================================
+// --- MIDDLEWARE DE MANEJO DE ERRORES GLOBAL ---
+// Captura errores pasados por next(err) y los formatea correctamente.
+// ====================================================================
+app.use((err, req, res) => {
+    // Para errores de validación (Joi), el status code ya estará adjunto (400)
+    const statusCode = err.status || 500;
 
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor HaltTest corriendo en http://localhost:${PORT}`);
-    console.log(`(Puerto: ${PORT})`);
+    // Ocultar detalles sensibles en producción
+    if (process.env.NODE_ENV === 'production' && statusCode === 500) {
+        console.error('❌ Error no manejado (producción):', err);
+        return res.status(500).json({
+            status: 'error',
+            message: 'Error interno del servidor. Intente de nuevo más tarde.',
+        });
+    }
+
+    // Respuesta detallada para desarrollo (o para errores de cliente 4xx)
+    console.error('❌ Error no manejado:', err);
+    res.status(statusCode).json({
+        status: 'error',
+        message: err.message || 'Error interno del servidor',
+        // Si el error tiene detalles (ej. de Joi), los incluimos.
+        ...(err.details && { details: err.details }),
+        // Mostrar el stack trace solo en desarrollo para 500
+        ...(process.env.NODE_ENV === 'development' && statusCode === 500 && { stack: err.stack }),
+    });
 });
 
-// Exportar la instancia de la aplicación para que SuperTest pueda usarla
+// --- MANEJO DE RUTAS NO ENCONTRADAS (404) ---
+app.use((req, res) => {
+    res.status(404).json({
+        status: 'error',
+        message: `Ruta no encontrada: ${req.method} ${req.path}`,
+    });
+});
+
+// --- INICIO DEL SERVIDOR ---
+app.listen(PORT, () => {
+    console.log(`\n🚀 ================================`);
+    console.log(`   HaltTest Backend Server`);
+    console.log(`   Corriendo en: http://localhost:${PORT}`);
+    console.log(`   Ambiente: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`================================\n`);
+});
+
+// 5.2. Manejador de Errores Centralizado
+app.use(errorHandler);
+
+// Exportar la instancia de la aplicación para testing
 export default app;
