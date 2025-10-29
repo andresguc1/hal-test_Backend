@@ -7,8 +7,7 @@
   "scripts": {
     "dev": "node --watch app.js",
     "start": "node app.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "api:test": "jest --detectOpenHandles --verbose",
+    "test": "vitest",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.js\" \"!node_modules/**\"",
@@ -21,7 +20,8 @@
     "body-parser": "^2.2.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "morgan": "^1.10.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.38.0",
@@ -31,10 +31,11 @@
     "eslint-plugin-prettier": "^5.5.4",
     "globals": "^16.4.0",
     "husky": "^9.1.7",
-    "jest": "^30.2.0",
     "lint-staged": "^16.2.6",
     "prettier": "^3.6.2",
-    "supertest": "^7.1.4"
+    "supertest": "^7.1.4",
+    "vite": "^7.1.12",
+    "vitest": "^4.0.4"
   },
   "lint-staged": {
     "*.js": [

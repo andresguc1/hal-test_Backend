@@ -3,13 +3,24 @@
 // 🚀 HaltTest Backend Server
 // ==========================
 
-require('dotenv').config();
-const express = require('express');
-const bodyParser = require('body-parser');
-const cors = require('cors');
+import 'dotenv/config'; // Forma moderna de cargar dotenv en ESM
+import express from 'express';
+import bodyParser from 'body-parser';
+import cors from 'cors';
 
 const app = express();
 const PORT = process.env.PORT || 2001; // PUERTO CAMBIADO A 2001
+
+// 🔄 Importa los loggers (¡ACTUALIZADO para ESM!)
+import { developmentLogger, productionLogger } from './middlewares/logger.js';
+// NOTA: Se usa 'import' en lugar de 'require' y se añade la extensión '.js'
+
+// Aplica el logger según el ambiente
+if (process.env.NODE_ENV === 'production') {
+    app.use(productionLogger()); // Logs detallados en archivo
+} else {
+    app.use(developmentLogger()); // Logs concisos en consola
+}
 
 // --- MOCKS DE DATOS DEL FRAMEWORK PLAYWRIGHT MCP ---
 
@@ -1014,4 +1025,4 @@ app.listen(PORT, () => {
 });
 
 // Exportar la instancia de la aplicación para que SuperTest pueda usarla
-module.exports = app;
+export default app;
