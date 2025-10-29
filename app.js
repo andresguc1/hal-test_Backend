@@ -7,9 +7,18 @@ import 'dotenv/config'; // Forma moderna de cargar dotenv en ESM
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
+import { apiLimiter, helmetMiddleware } from './middlewares/security.js';
 
 const app = express();
 const PORT = process.env.PORT || 2001; // PUERTO CAMBIADO A 2001
+
+// 1. Middlewares de Seguridad (Aplicar primero)
+app.use(helmetMiddleware);
+app.use(apiLimiter); // Aplicar a todas las rutas
+
+// 2. Middlewares de Formato
+app.use(cors());
+app.use(express.json()); // Usar express.json en lugar de body-parser
 
 // 🔄 Importa los loggers (¡ACTUALIZADO para ESM!)
 import { developmentLogger, productionLogger } from './middlewares/logger.js';
