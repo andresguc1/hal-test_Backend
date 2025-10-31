@@ -1,43 +1,48 @@
 // controllers/action.controller.js
+// ==========================================================
+// 🧠 Conectores de acciones individuales al Playwright MCP
+// ==========================================================
 
-/**
- * Lógica de controladores para las operaciones de Hal-Test (acciones de Playwright).
- */
-
-// Este mock simula la ejecución exitosa de un comando.
-// En un sistema real, aquí llamarías a un servicio para ejecutar la lógica de Playwright.
+import { callTool } from '../services/mcp.service.js';
 
 // ==========================================================
-// 1. OPEN URL
+// 1. OPEN URL (page.goto)
 // ==========================================================
 
 export const openUrlAction = async (req, res, next) => {
     try {
-        const { url, waitUntil } = req.body;
+        const { url, waitUntil, timeout } = req.body;
 
-        console.log(`[ACTION] URL abierta: ${url} (Wait: ${waitUntil})`);
+        // 1. Mapear el nodo a la herramienta MCP
+        const toolName = 'page.goto';
+
+        // 2. Llamar al cliente MCP con los argumentos
+        const result = await callTool(toolName, { url, waitUntil, timeout });
+
+        console.log(`[ACTION] URL abierta en MCP: ${url}`);
 
         res.status(200).json({
             success: true,
-            message: `URL '${url}' abierta con éxito.`,
+            message: `URL '${url}' abierta con éxito vía MCP.`,
             action: 'open_url',
             data: req.body,
+            mcp_result: result,
         });
     } catch (error) {
-        next(error); // ahora sí existe
+        // next(error) pasa el control al manejador de errores global
+        next(error);
     }
 };
 
 // ==========================================================
-// 2. LAUNCH BROWSER
+// 2. LAUNCH BROWSER (browser.launch)
 // ==========================================================
 
 export const launchBrowserAction = async (req, res, next) => {
     try {
-        // req.body está limpio y validado por Joi
         const options = req.body;
 
-        // Simular la conversión de args (si es un string separado por comas)
+        // Limpiar y procesar la cadena de argumentos (args) si existe
         const argsArray = options.args
             ? options.args
                   .split(',')
@@ -45,34 +50,61 @@ export const launchBrowserAction = async (req, res, next) => {
                   .filter((arg) => arg.length > 0)
             : [];
 
-        // Simular la acción de Playwright
-        // const browser = await playwrightService.launch(options);
+        // 1. Mapear el nodo a la herramienta MCP
+        const toolName = 'browser.launch';
 
-        console.log(
-            `[ACTION] Navegador '${options.browserType}' lanzado. Headless: ${options.headless}`,
-        );
+        // 2. Argumentos para el MCP
+        const mcpArgs = {
+            browserType: options.browserType,
+            headless: options.headless,
+            slowMo: options.slowMo,
+            ...(argsArray.length > 0 && { args: argsArray }),
+        };
+
+        // 3. Llamar al cliente MCP con los argumentos
+        const result = await callTool(toolName, mcpArgs);
+
+        console.log(`[ACTION] Navegador '${options.browserType}' lanzado vía MCP.`);
 
         res.status(200).json({
             success: true,
-            message: `Navegador '${options.browserType}' lanzado con éxito.`,
+            message: `Navegador '${options.browserType}' lanzado con éxito vía MCP.`,
             action: 'launch_browser',
-            // Opcionalmente, puedes devolver los datos procesados, como args como un array:
             data: { ...options, args: argsArray, status: 'launched' },
+            mcp_result: result,
         });
     } catch (error) {
-        // Pasa cualquier error al manejador de errores centralizado
         next(error);
     }
 };
 
 // ==========================================================
-// 3. CLICK (Eliminado en la última refactorización)
+// 3. CLOSE BROWSER (browser.close)
 // ==========================================================
 
-// export const clickAction = async (req, res, next) => {
-//     // ... código del click ...
-// };
+export const closeBrowserAction = async (req, res, next) => {
+    try {
+        // La acción close_browser tiene un body, aunque el MCP no lo requiera directamente.
+        const { forceClose, clearContext } = req.body;
 
-// Nota: Dado que en el archivo routes/api.router.js importaste explícitamente
-// 'openUrlAction' y 'launchBrowserAction' desde action.controller.js,
-// este archivo ahora es la fuente de ambos controladores.
+        // 1. Mapear el nodo a la herramienta MCP. El MCP puede no requerir argumentos
+        const toolName = 'browser.close';
+
+        // 2. Llamar al cliente MCP (puedes pasarle opciones si el MCP las soporta)
+        const result = await callTool(toolName, { force: forceClose, clear: clearContext });
+
+        console.log(`[ACTION] Navegador cerrado vía MCP.`);
+
+        res.status(200).json({
+            success: true,
+            message: `Navegador cerrado con éxito vía MCP.`,
+            action: 'close_browser',
+            data: req.body,
+            mcp_result: result,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// ... Aquí se agregarán más acciones como clickAction, typeTextAction, etc.

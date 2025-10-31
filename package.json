@@ -17,6 +17,7 @@
   "author": "andresguc <andresguc@gmail.com>",
   "license": "ISC",
   "dependencies": {
+    "@playwright/mcp": "^0.0.44",
     "body-parser": "^2.2.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
