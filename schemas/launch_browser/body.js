@@ -6,29 +6,44 @@ import Joi from 'joi';
 const allowedBrowserTypes = ['chromium', 'firefox', 'webkit'];
 
 const launchBrowserBodySchema = Joi.object({
-    // 1. browserType
+    // 1. browserType (Obligatorio)
     browserType: Joi.string()
         .valid(...allowedBrowserTypes)
-        .default('chromium') // Coincide con el defaultValue del frontend
-        .required() // Coincide con el required: true del frontend
+        .default('chromium')
+        .required()
         .messages({
             'any.required': 'El tipo de navegador (browserType) es obligatorio.',
             'any.only': 'El tipo de navegador debe ser chromium, firefox, o webkit.',
         }),
 
-    // 2. headless (Asumido como el siguiente campo lógico)
-    // Indica si el navegador debe ejecutarse en modo headless (sin interfaz visual)
-    headless: Joi.boolean()
-        .default(true) // Por defecto, Playwright usa true
+    // 2. headless (Opcional)
+    headless: Joi.boolean().default(true).optional().messages({
+        'boolean.base': 'El campo headless debe ser un valor booleano (true/false).',
+    }),
+
+    // 3. slowMo (Opcional)
+    // Retardo en milisegundos entre cada operación
+    slowMo: Joi.number().integer().min(0).default(0).optional().messages({
+        'number.base': 'slowMo debe ser un número.',
+        'number.min': 'slowMo no puede ser negativo.',
+    }),
+
+    // 4. args (Opcional)
+    // Argumentos de línea de comandos del navegador (se envía como string y el controlador lo separa)
+    args: Joi.string()
+        .allow(null, '') // Permite que sea nulo o una cadena vacía
         .optional()
         .messages({
-            'boolean.base': 'El campo headless debe ser un valor booleano (true/false).',
+            'string.base': 'args debe ser una cadena de texto.',
         }),
 
-    // 3. Otros parámetros de lanzamiento (opcional)
-    // Por ejemplo, puedes definir un objeto para 'args' o 'channel' si los necesitas.
+    // 5. executablePath (Opcional)
+    // Ruta a un ejecutable de navegador personalizado
+    executablePath: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'executablePath debe ser una cadena de texto.',
+    }),
 
-    // Bloquea cualquier campo extra que no esté definido.
+    // ⚠️ Deshabilita la opción 'unknown' para solo permitir los campos definidos
 }).unknown(false);
 
 export default launchBrowserBodySchema;
