@@ -15,9 +15,16 @@ const waitVisibleBodySchema = Joi.object({
     }),
 
     // 3. scrollIntoView (Booleano/Checkbox)
-    scrollIntoView: Joi.boolean()
-        .default(true) // Por defecto, intenta hacer scroll
-        .optional(),
-}).unknown(false);
+    scrollIntoView: Joi.boolean().default(true).optional().messages({
+        'boolean.base': 'El campo scrollIntoView debe ser booleano.',
+    }),
+
+    // 4. browserId (ID del navegador objetivo) 🆕
+    browserId: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
+    }),
+})
+    // Bloquea cualquier campo extra que no esté definido.
+    .unknown(false);
 
 export default waitVisibleBodySchema;

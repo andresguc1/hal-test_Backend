@@ -9,7 +9,7 @@ const allowedFormats = [
 
 const takeScreenshotBodySchema = Joi.object({
     // 1. selector (Opcional)
-    selector: Joi.string().trim().optional().allow(null, ''), // Permite que sea vacío para capturar toda la página
+    selector: Joi.string().trim().optional().allow(null, ''),
 
     // 2. path (Ruta de Guardado, Opcional)
     path: Joi.string().trim().optional().allow(null, '').messages({
@@ -17,8 +17,9 @@ const takeScreenshotBodySchema = Joi.object({
     }),
 
     // 3. fullPage (Booleano/Checkbox)
-    // NOTA: En el código de ejecución, esto debe ignorarse si se proporciona un 'selector'.
-    fullPage: Joi.boolean().default(false).optional(),
+    fullPage: Joi.boolean().default(false).optional().messages({
+        'boolean.base': 'El campo fullPage debe ser booleano.',
+    }),
 
     // 4. format (Requerido, Select)
     format: Joi.string()
@@ -31,14 +32,22 @@ const takeScreenshotBodySchema = Joi.object({
         }),
 
     // 5. quality (Número, Condicional)
-    // NOTA: Esto sólo se aplica si 'format' es 'jpeg'.
     quality: Joi.number().integer().min(1).max(100).default(100).messages({
         'number.min': 'La calidad debe ser al menos 1.',
         'number.max': 'La calidad debe ser como máximo 100.',
     }),
 
     // 6. timeout (Tiempo de espera)
-    timeout: Joi.number().integer().min(1).default(30000),
-}).unknown(false);
+    timeout: Joi.number().integer().min(1).default(30000).messages({
+        'number.min': 'El tiempo de espera (timeout) debe ser al menos 1ms.',
+    }),
+
+    // 7. browserId (ID del navegador objetivo) 🆕
+    browserId: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
+    }),
+})
+    // Bloquea cualquier campo extra que no esté definido.
+    .unknown(false);
 
 export default takeScreenshotBodySchema;

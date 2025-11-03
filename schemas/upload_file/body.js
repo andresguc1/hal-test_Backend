@@ -9,14 +9,22 @@ const uploadFileBodySchema = Joi.object({
     }),
 
     // 2. files (Rutas de Archivos a Subir, Requerido)
-    // NOTA: Se espera un string de rutas separadas por algún delimitador (ej: coma), que el backend debe procesar.
     files: Joi.string().trim().required().messages({
         'any.required': 'Las rutas de los archivos a subir son obligatorias.',
         'string.empty': 'Las rutas de los archivos no pueden estar vacías.',
     }),
 
     // 3. timeout (Número, Mínimo 1)
-    timeout: Joi.number().integer().min(1).default(30000),
-}).unknown(false);
+    timeout: Joi.number().integer().min(1).default(30000).messages({
+        'number.min': 'El tiempo de espera (timeout) debe ser al menos 1ms.',
+    }),
+
+    // 4. browserId (ID del navegador objetivo) 🆕
+    browserId: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
+    }),
+})
+    // Bloquea cualquier campo extra que no esté definido.
+    .unknown(false);
 
 export default uploadFileBodySchema;

@@ -31,14 +31,10 @@ const clickBodySchema = Joi.object({
         }),
 
     // 3. clickCount (Número, Mínimo 1)
-    clickCount: Joi.number()
-        .integer()
-        .min(1) // Coincide con min: 1 del frontend
-        .default(1) // Coincide con defaultValue del frontend
-        .messages({
-            'number.base': 'El número de clics debe ser un número entero.',
-            'number.min': 'El número de clics debe ser al menos 1.',
-        }),
+    clickCount: Joi.number().integer().min(1).default(1).messages({
+        'number.base': 'El número de clics debe ser un número entero.',
+        'number.min': 'El número de clics debe ser al menos 1.',
+    }),
 
     // 4. modifiers (Array de Strings, Opcional)
     modifiers: Joi.array()
@@ -59,6 +55,11 @@ const clickBodySchema = Joi.object({
     // 6. force (Booleano, Checkbox)
     force: Joi.boolean().default(false).optional().messages({
         'boolean.base': 'El campo force debe ser un valor booleano (true/false).',
+    }),
+
+    // 7. browserId (ID del navegador objetivo) 🚨 ¡CRUCIAL!
+    browserId: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
     }),
 })
     // Bloquea cualquier campo extra que no esté definido.

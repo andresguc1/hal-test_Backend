@@ -9,12 +9,21 @@ const waitNetworkBodySchema = Joi.object({
     }),
 
     // 2. timeout (Tiempo de espera Máximo)
-    timeout: Joi.number().integer().min(1).default(30000),
+    timeout: Joi.number().integer().min(1).default(30000).messages({
+        'number.min': 'El tiempo de espera (timeout) debe ser al menos 1ms.',
+    }),
 
     // 3. includeResources (Booleano/Checkbox)
-    includeResources: Joi.boolean()
-        .default(true) // Por defecto, incluye todos los recursos (CSS, JS, imágenes)
-        .optional(),
-}).unknown(false);
+    includeResources: Joi.boolean().default(true).optional().messages({
+        'boolean.base': 'El campo includeResources debe ser booleano.',
+    }),
+
+    // 4. browserId (ID del navegador objetivo) 🆕
+    browserId: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
+    }),
+})
+    // Bloquea cualquier campo extra que no esté definido.
+    .unknown(false);
 
 export default waitNetworkBodySchema;

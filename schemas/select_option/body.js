@@ -26,13 +26,21 @@ const selectOptionBodySchema = Joi.object({
         }),
 
     // 3. selectionValue (Requerido, String)
-    // Nota: Aunque el índice es numérico, Joi lo acepta como string y el backend lo parseará.
     selectionValue: Joi.string().trim().required().messages({
         'any.required': 'El valor, etiqueta o índice a seleccionar es obligatorio.',
     }),
 
     // 4. timeout (Número, Mínimo 1)
-    timeout: Joi.number().integer().min(1).default(30000),
-}).unknown(false);
+    timeout: Joi.number().integer().min(1).default(30000).messages({
+        'number.min': 'El tiempo de espera (timeout) debe ser al menos 1ms.',
+    }),
+
+    // 5. browserId (ID del navegador objetivo) 🆕
+    browserId: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
+    }),
+})
+    // Bloquea cualquier campo extra que no esté definido.
+    .unknown(false);
 
 export default selectOptionBodySchema;

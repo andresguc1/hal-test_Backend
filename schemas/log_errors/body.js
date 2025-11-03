@@ -4,10 +4,11 @@ import Joi from 'joi';
 
 const logErrorsBodySchema = Joi.object({
     // 1. logToFile (Booleano/Checkbox)
-    logToFile: Joi.boolean().default(false).optional(),
+    logToFile: Joi.boolean().default(false).optional().messages({
+        'boolean.base': 'logToFile debe ser booleano.',
+    }),
 
     // 2. filePath (Ruta de Archivo, Condicional)
-    // Requerido solo si 'logToFile' es true.
     filePath: Joi.string()
         .trim()
         .optional()
@@ -23,8 +24,16 @@ const logErrorsBodySchema = Joi.object({
         }),
 
     // 3. timeout (Duración de Escucha)
-    // 0 significa indefinido.
-    timeout: Joi.number().integer().min(0).default(0),
-}).unknown(false);
+    timeout: Joi.number().integer().min(0).default(0).messages({
+        'number.min': 'El timeout debe ser positivo o cero (indefinido).',
+    }),
+
+    // 4. browserId (ID del navegador objetivo) 🆕
+    browserId: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
+    }),
+})
+    // Bloquea cualquier campo extra que no esté definido.
+    .unknown(false);
 
 export default logErrorsBodySchema;

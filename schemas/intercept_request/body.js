@@ -14,7 +14,7 @@ const interceptRequestBodySchema = Joi.object({
     // 2. method (Método HTTP, Opcional)
     method: Joi.string()
         .valid(...allowedMethods)
-        .default('') // Por defecto, cualquiera
+        .default('')
         .optional(),
 
     // 3. action (Acción a Realizar, Requerido)
@@ -28,7 +28,6 @@ const interceptRequestBodySchema = Joi.object({
         }),
 
     // 4. responseMock (Cuerpo de Respuesta Mock, Condicional)
-    // Requerido solo si 'action' es 'mock'.
     responseMock: Joi.string()
         .optional()
         .allow(null, '')
@@ -42,8 +41,16 @@ const interceptRequestBodySchema = Joi.object({
         }),
 
     // 5. timeout (Duración de Interceptación)
-    // 0 significa indefinido.
-    timeout: Joi.number().integer().min(0).default(0),
-}).unknown(false);
+    timeout: Joi.number().integer().min(0).default(0).messages({
+        'number.min': 'El timeout debe ser positivo o cero (indefinido).',
+    }),
+
+    // 6. browserId (ID del navegador objetivo) 🆕
+    browserId: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
+    }),
+})
+    // Bloquea cualquier campo extra que no esté definido.
+    .unknown(false);
 
 export default interceptRequestBodySchema;

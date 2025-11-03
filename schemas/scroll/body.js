@@ -7,7 +7,7 @@ const allowedBehaviors = ['auto', 'smooth'];
 
 const scrollBodySchema = Joi.object({
     // 1. selector (Opcional)
-    selector: Joi.string().trim().optional().allow(null, ''), // Permitir que sea nulo o vacío
+    selector: Joi.string().trim().optional().allow(null, ''),
 
     // 2. direction (String, Condicional)
     direction: Joi.string()
@@ -31,9 +31,12 @@ const scrollBodySchema = Joi.object({
             'any.only': 'El comportamiento debe ser auto o smooth.',
         }),
 
-    // NOTA: La lógica de si direction/amount son necesarios (cuando selector está vacío)
-    // se maneja mejor en el controlador, ya que Joi hace la validación de forma independiente.
-    // Aquí solo se validan los tipos y valores permitidos.
-}).unknown(false);
+    // 5. browserId (ID del navegador objetivo) 🆕
+    browserId: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
+    }),
+})
+    // Bloquea cualquier campo extra que no esté definido.
+    .unknown(false);
 
 export default scrollBodySchema;

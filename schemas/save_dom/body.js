@@ -12,7 +12,6 @@ const saveDomBodySchema = Joi.object({
     }),
 
     // 3. variableName (Nombre de Variable, Condicional)
-    // Requerido solo si 'path' está vacío, ya que el contenido debe guardarse en algún lugar.
     variableName: Joi.string()
         .trim()
         .optional()
@@ -28,7 +27,16 @@ const saveDomBodySchema = Joi.object({
         }),
 
     // 4. timeout (Tiempo de espera)
-    timeout: Joi.number().integer().min(1).default(30000),
-}).unknown(false);
+    timeout: Joi.number().integer().min(1).default(30000).messages({
+        'number.min': 'El tiempo de espera (timeout) debe ser al menos 1ms.',
+    }),
+
+    // 5. browserId (ID del navegador objetivo) 🆕
+    browserId: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
+    }),
+})
+    // Bloquea cualquier campo extra que no esté definido.
+    .unknown(false);
 
 export default saveDomBodySchema;

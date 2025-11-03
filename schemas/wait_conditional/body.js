@@ -15,11 +15,19 @@ const waitConditionalBodySchema = Joi.object({
     }),
 
     // 3. timeout (Tiempo de espera Máximo)
-    timeout: Joi.number().integer().min(1).default(30000),
+    timeout: Joi.number().integer().min(1).default(30000).messages({
+        'number.min': 'El tiempo de espera (timeout) debe ser al menos 1ms.',
+    }),
 
     // 4. args (Argumentos para el Script, Opcional)
-    // NOTA: Se espera un string que el backend debe parsear a un array de argumentos.
     args: Joi.string().trim().optional().allow(null, ''),
-}).unknown(false);
+
+    // 5. browserId (ID del navegador objetivo) 🆕
+    browserId: Joi.string().allow(null, '').optional().messages({
+        'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
+    }),
+})
+    // Bloquea cualquier campo extra que no esté definido.
+    .unknown(false);
 
 export default waitConditionalBodySchema;
