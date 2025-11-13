@@ -2,9 +2,14 @@
 
 import Joi from 'joi';
 
-// Array de valores permitidos para el campo 'waitUntil'
-const allowedWaitUntilValues = ['load', 'domcontentloaded', 'networkidle', 'commit'];
+// Valores válidos para el campo 'waitUntil' según Playwright
+const allowedWaitUntilValues = ['load', 'domcontentloaded', 'networkidle0', 'networkidle2'];
 
+/**
+ * Schema para la acción open_url.
+ * Se eliminó la obligatoriedad de `browserId`,
+ * ya que ahora el backend determina automáticamente qué navegador usar.
+ */
 const openUrlBodySchema = Joi.object({
     // 1. URL (Requerido)
     url: Joi.string()
@@ -12,7 +17,7 @@ const openUrlBodySchema = Joi.object({
         .trim()
         .required()
         .messages({
-            'any.required': 'La propiedad "url" es obligatoria para iniciar la prueba.',
+            'any.required': 'La propiedad "url" es obligatoria para abrir una página.',
             'string.empty': 'La propiedad "url" no puede estar vacía.',
             'string.uri': 'URL inválida. Debe incluir http:// o https://.',
         }),
@@ -20,33 +25,28 @@ const openUrlBodySchema = Joi.object({
     // 2. waitUntil (Condición de espera)
     waitUntil: Joi.string()
         .valid(...allowedWaitUntilValues)
-        .default('load')
-        .optional() // Joi es estricto, es mejor marcar opcional si tiene default
+        .default('domcontentloaded')
+        .optional()
         .messages({
             'any.only':
-                'La condición de espera no es válida. Use load, domcontentloaded, networkidle o commit.',
+                'Valor no válido para "waitUntil". Use load, domcontentloaded, networkidle0 o networkidle2.',
         }),
 
-    // 3. timeout (Tiempo de espera en ms)
-    timeout: Joi.number()
-        .integer()
-        .min(0)
-        .default(30000)
-        .optional() // Joi es estricto, es mejor marcar opcional si tiene default
-        .messages({
-            'number.base': 'El tiempo de espera debe ser un número entero.',
-            'number.min': 'El tiempo de espera no puede ser negativo.',
-        }),
+    // 3. timeout (Tiempo de espera máximo en milisegundos)
+    timeout: Joi.number().integer().min(0).default(20000).optional().messages({
+        'number.base': 'El tiempo de espera debe ser un número entero.',
+        'number.min': 'El tiempo de espera no puede ser negativo.',
+    }),
 
-    // 4. browserId (ID del navegador objetivo) 🆕 CAMPO AÑADIDO
+    // 4. browserId (opcional, gestionado internamente)
     browserId: Joi.string()
-        .allow(null, '') // Permite null o cadena vacía si el frontend no lo envía
+        .allow(null, '') // Permite no enviarlo o enviarlo vacío
         .optional()
         .messages({
             'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
         }),
 })
-    // IMPORTANTE: Bloquea cualquier campo extra no definido.
+    // Rechazar campos desconocidos para mantener consistencia y seguridad
     .unknown(false);
 
 export default openUrlBodySchema;

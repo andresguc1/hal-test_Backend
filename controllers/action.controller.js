@@ -41,34 +41,38 @@ export const launchBrowserAction = async (req, res, next) => {
         console.log('[ACTION] Iniciando lanzamiento de navegador...');
         console.log('[REQUEST DATA]', req.body || {});
 
-        // Lanzar navegador visible (sin visitar páginas)
-        const browser = await chromium.launch({ headless: false });
+        // Lanzar como servidor para obtener wsEndpoint (permite reconectar luego)
+        const browserServer = await chromium.launchServer({ headless: false });
 
-        // Generar un ID más corto (por ejemplo, primeros 8 caracteres de un UUID)
-        const browserId = randomUUID().split('-')[0]; // ej: "a3f9b0c1"
+        // Obtener wsEndpoint
+        const wsEndpoint = browserServer.wsEndpoint();
 
-        // Guardar la instancia en memoria
-        browsers.set(browserId, browser);
+        // Conectarnos al server para obtener una instancia Browser que podamos usar localmente
+        const browser = await chromium.connect({ wsEndpoint });
 
-        console.log(`[SUCCESS] Navegador lanzado con ID: ${browserId}`);
+        // Generar ID corto
+        const browserId = randomUUID().split('-')[0];
 
-        // Crear carpeta de almacenamiento si no existe
+        // Guardar instancia en memoria
+        browsers.set(browserId, { browser, wsEndpoint, browserServer });
+
+        console.log(`[SUCCESS] Navegador lanzado con ID: ${browserId} (wsEndpoint guardado)`);
+
+        // Guardar metadata en ./storages
         const storageDir = path.resolve('./storages');
         await fs.mkdir(storageDir, { recursive: true });
 
-        // Crear objeto con información del navegador
         const data = {
             browserId,
-            status: 'success',
+            status: 'open',
             launchedAt: new Date().toISOString(),
+            wsEndpoint,
             requestData: req.body || {},
         };
 
-        // Guardar JSON en ./storages/<browserId>.json
         const filePath = path.join(storageDir, `${browserId}.json`);
         await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
 
-        // Crear objeto de respuesta
         const response = {
             success: true,
             message: 'Navegador lanzado correctamente.',
@@ -76,25 +80,21 @@ export const launchBrowserAction = async (req, res, next) => {
             filePath,
         };
 
-        // Log completo de la respuesta
         console.log('[RESPONSE DATA]', response);
-
-        // Enviar respuesta al cliente
-        res.status(200).json(response);
+        return res.status(200).json(response);
     } catch (error) {
         console.error('[ERROR] Fallo al lanzar el navegador:', error.message);
 
+        // Guardar info de fallo
         try {
             const storageDir = path.resolve('./storages');
             await fs.mkdir(storageDir, { recursive: true });
-
             const failData = {
                 status: 'failed',
                 error: error.message,
                 failedAt: new Date().toISOString(),
                 requestData: req.body || {},
             };
-
             const failFile = path.join(storageDir, `error_${Date.now()}.json`);
             await fs.writeFile(failFile, JSON.stringify(failData, null, 2), 'utf8');
         } catch (saveErr) {
@@ -106,9 +106,7 @@ export const launchBrowserAction = async (req, res, next) => {
             message: 'Error al lanzar el navegador.',
             error: error.message,
         };
-
         console.log('[RESPONSE DATA - ERROR]', errorResponse);
-
         res.status(500).json(errorResponse);
         next(error);
     }
@@ -118,7 +116,85 @@ export const launchBrowserAction = async (req, res, next) => {
 // 2. OPEN URL (open_url)
 // ==========================================================
 
-export const openUrlAction = async () => {};
+const storageDir = path.resolve('./storages');
+
+export const openUrlAction = async (req, res, next) => {
+    try {
+        const { url, waitUntil = 'load', timeout = 30000 } = req.body ?? {};
+
+        console.log('[ACTION] openUrlAction solicitado:', { url, waitUntil, timeout });
+
+        // Validar URL
+        if (!url) {
+            const response = { success: false, message: 'url es requerida.' };
+            console.log('[RESPONSE DATA - ERROR]', response);
+            return res.status(400).json(response);
+        }
+
+        // Buscar el último browser lanzado
+        let browserEntry;
+        const browserIds = Array.from(browsers.keys());
+        if (browserIds.length > 0) {
+            const lastId = browserIds[browserIds.length - 1];
+            browserEntry = browsers.get(lastId);
+            console.log(`[INFO] Usando navegador existente con ID: ${lastId}`);
+        } else {
+            console.log('[INFO] No hay navegador activo. Lanzando uno nuevo...');
+            const browser = await chromium.launch({ headless: false });
+            const browserId = Date.now().toString(36); // id simple y corto
+            browsers.set(browserId, browser);
+            browserEntry = browser;
+            console.log(`[SUCCESS] Nuevo navegador lanzado con ID: ${browserId}`);
+        }
+
+        const browser = browserEntry.browser || browserEntry;
+
+        // Abrir nueva página
+        const page = await browser.newPage();
+        const start = Date.now();
+        await page.goto(url, { waitUntil, timeout });
+        const duration = Date.now() - start;
+
+        console.log(`[SUCCESS] URL abierta (${duration}ms): ${url}`);
+
+        // Guardar trazabilidad
+        await fs.mkdir(storageDir, { recursive: true });
+        const trace = {
+            action: 'open_url',
+            url,
+            waitUntil,
+            timeout,
+            status: 'success',
+            timestamp: new Date().toISOString(),
+            durationMs: duration,
+        };
+        const fileName = `open_${Date.now()}.json`;
+        const tracePath = path.join(storageDir, fileName);
+        await fs.writeFile(tracePath, JSON.stringify(trace, null, 2), 'utf8');
+
+        const response = {
+            success: true,
+            message: 'URL abierta correctamente.',
+            url,
+            durationMs: duration,
+            tracePath,
+        };
+
+        console.log('[RESPONSE DATA]', response);
+        res.status(200).json(response);
+    } catch (error) {
+        console.error('[ERROR] openUrlAction:', error.message);
+
+        const errorResponse = {
+            success: false,
+            message: 'Error al abrir la URL.',
+            error: error.message,
+        };
+        console.log('[RESPONSE DATA - ERROR]', errorResponse);
+        res.status(500).json(errorResponse);
+        next(error);
+    }
+};
 
 // ==========================================================
 // 3. CLOSE BROWSER (close_browser)
