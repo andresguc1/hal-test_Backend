@@ -13,11 +13,11 @@ import { developmentLogger, productionLogger } from './middlewares/logger.js';
 import errorHandler from './middlewares/errorHandler.js';
 
 // Módulos de Rutas
-import apiRouter from './routes/api.router.js'; // Rutas de Acciones (Conectadas al MCP)
+import apiRouter from './routes/api.router.js'; // Rutas de Acciones (Originalmente Conectadas al MCP)
 import mockRouter from './routes/mock.router.js'; // Rutas de Mocks y Configuración (Nodos, Esquemas)
 
-// 🆕 Módulo de Conexión MCP
-import { connectMCP } from './services/mcp.service.js';
+// ❌ Se elimina la importación de connectMCP (ya no es necesaria)
+// import { connectMCP } from './services/mcp.service.js';
 
 const app = express();
 const PORT = process.env.PORT || 2001;
@@ -56,7 +56,7 @@ app.get('/api/status', (req, res) => {
     res.json({
         status: 'ok',
         message: 'HaltTest API is up and running 🚀',
-        version: '1.0.0-MCP',
+        version: '1.0.0-NO-MCP', // ✏️ Opcional: Cambiar la versión
         timestamp: new Date().toISOString(),
     });
 });
@@ -75,23 +75,13 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // --- 6. INICIO DEL SERVIDOR ---
-app.listen(PORT, async () => {
-    // ⚠️ app.listen ahora es ASÍNCRONO
+// ⚠️ app.listen ahora es SINCRÓNICO de nuevo
+app.listen(PORT, () => {
     console.log(`\n🚀 ================================`);
     console.log(`   HaltTest Backend Server`);
     console.log(`   Corriendo en: http://localhost:${PORT}`);
     console.log(`   Ambiente: ${process.env.NODE_ENV || 'development'}`);
-
-    // 🌐 CONEXIÓN CRÍTICA AL PLAYWRIGHT MCP
-    try {
-        await connectMCP();
-        console.log(`✅ Conexión con Playwright MCP establecida.`);
-    } catch (error) {
-        console.error(`❌ ERROR: No se pudo conectar con Playwright MCP.`);
-        console.error(`   Asegúrate de que el MCP esté corriendo en el puerto configurado.`);
-        console.error(`   Detalle: ${error.message}`); // 🆕 Usamos 'error' aquí
-    }
-
+    console.log(`✅ Servidor iniciado sin conexión a MCP.`);
     console.log(`================================\n`);
 });
 

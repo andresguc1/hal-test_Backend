@@ -7,6 +7,7 @@ import {
     // GESTIÓN DEL NAVEGADOR ⬅️ Nuevas Importaciones
     launchBrowserSchema,
     closeBrowserSchema,
+    manageTabsSchema,
 
     // NAVEGACIÓN Y CONFIGURACIÓN
     openUrlSchema,
@@ -46,6 +47,7 @@ const router = Router();
 // ====================================================================
 router.post('/launch-browser', validate(launchBrowserSchema), actionController.launchBrowser);
 router.post('/close-browser', validate(closeBrowserSchema), actionController.closeBrowser);
+router.post('/manage-tabs', validate(manageTabsSchema), actionController.manageTabs);
 
 // ====================================================================
 // --- NAVEGACIÓN Y CONFIGURACIÓN ---

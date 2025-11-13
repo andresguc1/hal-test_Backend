@@ -4,6 +4,10 @@
 // ==========================================================
 
 import { callTool } from '../services/mcp.service.js';
+import { chromium } from 'playwright';
+import { randomUUID } from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
 
 /**
  * Función auxiliar para limpiar la respuesta del MCP.
@@ -29,45 +33,72 @@ const getCleanResult = (result) => {
 // 1. LAUNCH BROWSER (launch_browser)
 // ==========================================================
 
+// Mapa en memoria para almacenar instancias de navegadores
+const browsers = new Map();
+
 export const launchBrowserAction = async (req, res, next) => {
     try {
-        const options = req.body;
+        console.log('[ACTION] Iniciando lanzamiento de navegador...');
 
-        // Limpiar y procesar la cadena de argumentos (args) si existe
-        const argsArray = options.args
-            ? options.args
-                  .split(',')
-                  .map((arg) => arg.trim())
-                  .filter((arg) => arg.length > 0)
-            : [];
+        // Lanzar navegador visible (sin visitar páginas)
+        const browser = await chromium.launch({ headless: false });
 
-        // 1. Mapear el nodo a la herramienta MCP (snake_case)
-        const toolName = 'launch_browser';
+        // Generar un ID único para este navegador
+        const browserId = randomUUID();
 
-        // 2. Argumentos para el MCP
-        const mcpArgs = {
-            browserType: options.browserType,
-            headless: options.headless,
-            slowMo: options.slowMo,
-            ...(argsArray.length > 0 && { args: argsArray }),
-            // Incluimos executablePath por si se usa
-            ...(options.executablePath && { executablePath: options.executablePath }),
+        // Guardar la instancia en memoria
+        browsers.set(browserId, browser);
+
+        console.log(`[SUCCESS] Navegador lanzado con ID: ${browserId}`);
+
+        // Crear carpeta de almacenamiento si no existe
+        const storageDir = path.resolve('./storages');
+        await fs.mkdir(storageDir, { recursive: true });
+
+        // Crear objeto con información del navegador
+        const data = {
+            browserId,
+            status: 'success',
+            launchedAt: new Date().toISOString(),
         };
 
-        // 3. Llamar al cliente MCP con los argumentos
-        const result = await callTool(toolName, mcpArgs);
+        // Guardar JSON en ./storages/<browserId>.json
+        const filePath = path.join(storageDir, `${browserId}.json`);
+        await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
 
-        console.log(`[ACTION] Navegador '${options.browserType}' lanzado vía MCP.`);
-
+        // Responder al cliente con el estado y el ID
         res.status(200).json({
             success: true,
-            // Usamos comillas dobles escapadas para que no rompa el JSON
-            message: `Navegador "${options.browserType}" lanzado con éxito vía MCP.`,
-            action: 'launch_browser',
-            data: { ...options, args: argsArray, status: 'launched' },
-            mcp_result: getCleanResult(result), // ⬅️ Aplicamos la limpieza
+            message: 'Navegador lanzado correctamente.',
+            browserId,
+            filePath,
         });
     } catch (error) {
+        console.error('[ERROR] Fallo al lanzar el navegador:', error.message);
+
+        // Intentar guardar estado fallido también
+        try {
+            const storageDir = path.resolve('./storages');
+            await fs.mkdir(storageDir, { recursive: true });
+
+            const failData = {
+                status: 'failed',
+                error: error.message,
+                failedAt: new Date().toISOString(),
+            };
+
+            const failFile = path.join(storageDir, `error_${Date.now()}.json`);
+            await fs.writeFile(failFile, JSON.stringify(failData, null, 2), 'utf8');
+        } catch (saveErr) {
+            console.error('[WARN] No se pudo guardar el JSON de error:', saveErr.message);
+        }
+
+        res.status(500).json({
+            success: false,
+            message: 'Error al lanzar el navegador.',
+            error: error.message,
+        });
+
         next(error);
     }
 };
@@ -76,40 +107,7 @@ export const launchBrowserAction = async (req, res, next) => {
 // 2. OPEN URL (open_url)
 // ==========================================================
 
-export const openUrlAction = async (req, res, next) => {
-    try {
-        // Asegúrate de que browserId esté incluido en la desestructuración
-        const { url, waitUntil, timeout, browserId } = req.body;
-
-        // 1. Mapear el nodo a la herramienta MCP (snake_case)
-        const toolName = 'open_url';
-
-        // 2. Argumentos para el MCP
-        const mcpArgs = {
-            url,
-            waitUntil,
-            timeout,
-            // Pasamos el ID del navegador si existe
-            ...(browserId && { browserId }),
-        };
-
-        // 3. Llamar al cliente MCP con los argumentos
-        const result = await callTool(toolName, mcpArgs);
-
-        console.log(`[ACTION] URL abierta en MCP: ${url}`);
-
-        res.status(200).json({
-            success: true,
-            message: `URL "${url}" abierta con éxito vía MCP.`,
-            action: 'open_url',
-            data: req.body,
-            mcp_result: getCleanResult(result), // ⬅️ Aplicamos la limpieza
-        });
-    } catch (error) {
-        // next(error) pasa el control al manejador de errores global
-        next(error);
-    }
-};
+export const openUrlAction = async () => {};
 
 // ==========================================================
 // 3. CLOSE BROWSER (close_browser)

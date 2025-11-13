@@ -26,6 +26,7 @@ import logErrorsBodySchema from './log_errors/body.js';
 import listenEventsBodySchema from './listen_events/body.js';
 import interceptRequestBodySchema from './intercept_request/body.js';
 import mockResponseBodySchema from './mock_response/body.js';
+import manageTabsBodySchemaImport from './manage_tabs/body.js';
 
 // ----------------------------------------------------------------------
 // 2. RE-EXPORTACIONES DE ESQUEMAS BASE (Opcional, para acceso directo al Joi)
@@ -34,6 +35,7 @@ import mockResponseBodySchema from './mock_response/body.js';
 export const launchBrowserBodySchema = launchBrowserBodySchemaImport;
 export const closeBrowserBodySchema = closeBrowserBodySchemaImport;
 export const openUrlBodySchema = openUrlBodySchemaImport;
+export const manageTabsBodySchema = manageTabsBodySchemaImport;
 // ... El resto de re-exportaciones de BodySchema ...
 
 // ----------------------------------------------------------------------
@@ -43,6 +45,7 @@ export const openUrlBodySchema = openUrlBodySchemaImport;
 // Gestión del Navegador
 export const launchBrowserSchema = { body: launchBrowserBodySchema };
 export const closeBrowserSchema = { body: closeBrowserBodySchema };
+export const manageTabsSchema = { body: manageTabsBodySchema };
 
 // Acciones de Navegación y Configuración
 export const openUrlSchema = { body: openUrlBodySchema };
