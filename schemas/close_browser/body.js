@@ -2,14 +2,21 @@
 
 import Joi from 'joi';
 
+/**
+ * Schema para close_browser:
+ * - browserId ya NO es obligatorio (el backend decidirá qué instancia cerrar si no viene).
+ * - forceClose y clearContext mantienen sus valores por defecto.
+ */
 const closeBrowserBodySchema = Joi.object({
-    // 1. browserId (¡OBLIGATORIO!)
-    // El ID que se obtuvo al llamar a launch_browser, vital para el MCP.
-    browserId: Joi.string().trim().required().messages({
-        'any.required': 'El ID del navegador (browserId) es obligatorio para cerrar la sesión.',
-        'string.empty': 'El browserId no puede estar vacío.',
-        'string.base': 'El browserId debe ser una cadena de texto.',
-    }),
+    // 1. browserId (OPCIONAL)
+    // Si se envía, debe ser una cadena no vacía; si no se envía, el backend usará la última instancia activa.
+    browserId: Joi.string()
+        .trim()
+        .allow(null, '') // permitir vacío o null para compatibilidad con frontends que no lo envían
+        .optional()
+        .messages({
+            'string.base': 'El browserId debe ser una cadena de texto.',
+        }),
 
     // 2. forceClose (Opcional)
     forceClose: Joi.boolean().default(false).optional().messages({
@@ -20,6 +27,8 @@ const closeBrowserBodySchema = Joi.object({
     clearContext: Joi.boolean().default(true).optional().messages({
         'boolean.base': 'El campo clearContext debe ser un valor booleano (true/false).',
     }),
-}).unknown(false);
+})
+    // Bloquea campos extra no definidos
+    .unknown(false);
 
 export default closeBrowserBodySchema;

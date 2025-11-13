@@ -29,6 +29,8 @@ const getCleanResult = (result) => {
     }
 };
 
+const storageDir = path.resolve('./storages');
+
 // ==========================================================
 // 1. LAUNCH BROWSER (launch_browser)
 // ==========================================================
@@ -116,8 +118,6 @@ export const launchBrowserAction = async (req, res, next) => {
 // 2. OPEN URL (open_url)
 // ==========================================================
 
-const storageDir = path.resolve('./storages');
-
 export const openUrlAction = async (req, res, next) => {
     try {
         const { url, waitUntil = 'load', timeout = 30000 } = req.body ?? {};
@@ -202,33 +202,179 @@ export const openUrlAction = async (req, res, next) => {
 
 export const closeBrowserAction = async (req, res, next) => {
     try {
-        const options = req.body;
+        // Normalizar entrada: tratar '' o null como no enviado
+        let { browserId, forceClose = false, clearContext = true } = req.body ?? {};
+        if (browserId === '' || browserId === null) browserId = undefined;
 
-        // 1. Mapear el nodo a la herramienta MCP (snake_case)
-        const toolName = 'close_browser';
-
-        // 2. Argumentos para el MCP
-        const mcpArgs = {
-            force: options.forceClose,
-            clear: options.clearContext,
-            // Pasamos el ID del navegador si existe
-            ...(options.browserId && { browserId: options.browserId }),
-        };
-
-        // 3. Llamar al cliente MCP
-        const result = await callTool(toolName, mcpArgs);
-
-        console.log(`[ACTION] Navegador cerrado vía MCP.`);
-
-        res.status(200).json({
-            success: true,
-            message: `Navegador cerrado con éxito vía MCP.`,
-            action: 'close_browser',
-            data: req.body,
-            mcp_result: getCleanResult(result), // ⬅️ Aplicamos la limpieza
+        console.log('[ACTION] closeBrowserAction iniciado.', {
+            browserId,
+            forceClose,
+            clearContext,
         });
+
+        // Si no se indicó browserId, usar el último activo
+        if (!browserId) {
+            const ids = Array.from(browsers.keys());
+            if (ids.length === 0) {
+                const response = {
+                    success: false,
+                    message: 'No hay navegadores activos para cerrar.',
+                };
+                console.log('[RESPONSE DATA - ERROR]', response);
+                return res.status(400).json(response);
+            }
+            browserId = ids[ids.length - 1];
+            console.log(`[INFO] No se especificó browserId, usando el último activo: ${browserId}`);
+        }
+
+        const entry = browsers.get(browserId);
+        if (!entry) {
+            const response = {
+                success: false,
+                message: `No se encontró navegador con ID: ${browserId}`,
+            };
+            console.log('[RESPONSE DATA - ERROR]', response);
+            return res.status(404).json(response);
+        }
+
+        // Extraer la instancia Browser real (soportar ambos formatos)
+        const browserInstance =
+            entry && typeof entry === 'object' && 'browser' in entry ? entry.browser : entry;
+
+        if (!browserInstance || typeof browserInstance.close !== 'function') {
+            const response = {
+                success: false,
+                message: `La instancia para browserId=${browserId} no es cerrable directamente.`,
+            };
+            console.log('[RESPONSE DATA - ERROR]', response);
+            return res.status(500).json(response);
+        }
+
+        // Intento de cierre "normal"
+        try {
+            // Cerrar contextos si corresponde
+            if (clearContext && typeof browserInstance.contexts === 'function') {
+                const contexts = browserInstance.contexts();
+                for (const ctx of contexts) {
+                    try {
+                        await ctx.close();
+                    } catch {
+                        // ignorar errores al cerrar contextos
+                    }
+                }
+            }
+
+            await browserInstance.close();
+
+            // Si hay un browserServer guardado, intentar cerrarlo también (no siempre existe)
+            if (entry && entry.browserServer && typeof entry.browserServer.close === 'function') {
+                try {
+                    await entry.browserServer.close();
+                } catch {
+                    // ignorar error de cierre del browserServer
+                }
+            }
+
+            // Borrar del Map
+            browsers.delete(browserId);
+
+            // Registrar trazabilidad
+            await fs.mkdir(storageDir, { recursive: true });
+            const trace = {
+                action: 'close_browser',
+                browserId,
+                status: 'success',
+                forceClose: !!forceClose,
+                clearContext: !!clearContext,
+                timestamp: new Date().toISOString(),
+            };
+            const fileName = `close_${browserId}_${Date.now()}.json`;
+            const tracePath = path.join(storageDir, fileName);
+            await fs.writeFile(tracePath, JSON.stringify(trace, null, 2), 'utf8');
+
+            const response = {
+                success: true,
+                message: 'Navegador cerrado correctamente.',
+                browserId,
+                tracePath,
+            };
+            console.log('[RESPONSE DATA]', response);
+            return res.status(200).json(response);
+        } catch (closeErr) {
+            console.error(
+                `[ERROR] closeBrowserAction: fallo al cerrar (normal): ${closeErr?.message || closeErr}`,
+            );
+
+            // Si forceClose está activado, intentar forzar cierre por PID/browserServer
+            if (forceClose && entry && entry.browserServer) {
+                try {
+                    // Intentar matar por PID si está disponible
+                    const pid = entry.browserServer?.process?.pid;
+                    if (pid) {
+                        try {
+                            process.kill(pid, 'SIGKILL');
+                            console.log(`[INFO] Proceso forzado terminado pid=${pid}`);
+                        } catch {
+                            console.warn(`[WARN] No se pudo terminar el proceso pid=${pid}`);
+                        }
+                    }
+
+                    // Intentar cerrar browserServer si existe
+                    if (typeof entry.browserServer.close === 'function') {
+                        try {
+                            await entry.browserServer.close();
+                        } catch {
+                            // ignorar
+                        }
+                    }
+
+                    // Eliminar del Map
+                    browsers.delete(browserId);
+
+                    // Registrar trazabilidad de forzado
+                    await fs.mkdir(storageDir, { recursive: true });
+                    const traceForce = {
+                        action: 'close_browser',
+                        browserId,
+                        status: 'force_closed',
+                        timestamp: new Date().toISOString(),
+                        note: 'Se forzó cierre vía PID/browserServer',
+                    };
+                    const fName = `close_${browserId}_forced_${Date.now()}.json`;
+                    const fPath = path.join(storageDir, fName);
+                    await fs.writeFile(fPath, JSON.stringify(traceForce, null, 2), 'utf8');
+
+                    const response = {
+                        success: true,
+                        message: 'Navegador forzado a cerrar.',
+                        browserId,
+                        tracePath: fPath,
+                    };
+                    console.log('[RESPONSE DATA]', response);
+                    return res.status(200).json(response);
+                } catch {
+                    // Si la operación de forzado falla, continuamos y retornamos error general abajo
+                }
+            }
+
+            const errorResponse = {
+                success: false,
+                message: 'Error al cerrar el navegador.',
+                error: closeErr?.message || String(closeErr),
+            };
+            console.log('[RESPONSE DATA - ERROR]', errorResponse);
+            return res.status(500).json(errorResponse);
+        }
     } catch (error) {
-        next(error);
+        console.error('[ERROR] closeBrowserAction:', error?.message || error);
+        const errorResponse = {
+            success: false,
+            message: 'Error al cerrar el navegador.',
+            error: error?.message || String(error),
+        };
+        console.log('[RESPONSE DATA - ERROR]', errorResponse);
+        res.status(500).json(errorResponse);
+        return next(error);
     }
 };
 
