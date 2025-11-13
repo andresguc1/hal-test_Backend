@@ -33,18 +33,19 @@ const getCleanResult = (result) => {
 // 1. LAUNCH BROWSER (launch_browser)
 // ==========================================================
 
-// Mapa en memoria para almacenar instancias de navegadores
+// Mapa en memoria
 const browsers = new Map();
 
 export const launchBrowserAction = async (req, res, next) => {
     try {
         console.log('[ACTION] Iniciando lanzamiento de navegador...');
+        console.log('[REQUEST DATA]', req.body || {});
 
         // Lanzar navegador visible (sin visitar páginas)
         const browser = await chromium.launch({ headless: false });
 
-        // Generar un ID único para este navegador
-        const browserId = randomUUID();
+        // Generar un ID más corto (por ejemplo, primeros 8 caracteres de un UUID)
+        const browserId = randomUUID().split('-')[0]; // ej: "a3f9b0c1"
 
         // Guardar la instancia en memoria
         browsers.set(browserId, browser);
@@ -60,23 +61,29 @@ export const launchBrowserAction = async (req, res, next) => {
             browserId,
             status: 'success',
             launchedAt: new Date().toISOString(),
+            requestData: req.body || {},
         };
 
         // Guardar JSON en ./storages/<browserId>.json
         const filePath = path.join(storageDir, `${browserId}.json`);
         await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
 
-        // Responder al cliente con el estado y el ID
-        res.status(200).json({
+        // Crear objeto de respuesta
+        const response = {
             success: true,
             message: 'Navegador lanzado correctamente.',
             browserId,
             filePath,
-        });
+        };
+
+        // Log completo de la respuesta
+        console.log('[RESPONSE DATA]', response);
+
+        // Enviar respuesta al cliente
+        res.status(200).json(response);
     } catch (error) {
         console.error('[ERROR] Fallo al lanzar el navegador:', error.message);
 
-        // Intentar guardar estado fallido también
         try {
             const storageDir = path.resolve('./storages');
             await fs.mkdir(storageDir, { recursive: true });
@@ -85,6 +92,7 @@ export const launchBrowserAction = async (req, res, next) => {
                 status: 'failed',
                 error: error.message,
                 failedAt: new Date().toISOString(),
+                requestData: req.body || {},
             };
 
             const failFile = path.join(storageDir, `error_${Date.now()}.json`);
@@ -93,12 +101,15 @@ export const launchBrowserAction = async (req, res, next) => {
             console.error('[WARN] No se pudo guardar el JSON de error:', saveErr.message);
         }
 
-        res.status(500).json({
+        const errorResponse = {
             success: false,
             message: 'Error al lanzar el navegador.',
             error: error.message,
-        });
+        };
 
+        console.log('[RESPONSE DATA - ERROR]', errorResponse);
+
+        res.status(500).json(errorResponse);
         next(error);
     }
 };
