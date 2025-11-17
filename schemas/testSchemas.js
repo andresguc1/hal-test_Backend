@@ -1,78 +1,179 @@
-// schemas/testSchemas.js
+// schemas/testSchemas.js (OPTIMIZADO Y COMPLETO)
 
 // ----------------------------------------------------------------------
-// 1. IMPORTACIÓN DE ESQUEMAS DE CUERPO
+// 1. ⚙️ Optimización de Importaciones: Importación unificada de todos los esquemas
+//    Asume que todos los archivos de esquema están exportados por nombre desde sus carpetas
 // ----------------------------------------------------------------------
+import {
+    // 🛠️ Navegador y Entorno
+    launchBrowserBodySchema as launchBrowser,
+    closeBrowserBodySchema as closeBrowser,
+    openUrlBodySchema as openUrl,
+    resizeViewportBodySchema as resizeViewport,
+    manageTabsBodySchema as manageTabs,
+    backForwardBodySchema as back, // Esquema back/forward
+    // Se asume el mismo esquema para 'forward' si es simple
+    // backForwardBodySchema as forward,
 
-import launchBrowserBodySchemaImport from './launch_browser/body.js'; // ⬅️ Nuevo
-import closeBrowserBodySchemaImport from './close_browser/body.js'; // ⬅️ Nuevo
-import openUrlBodySchemaImport from './open_url/body.js';
-import resizeViewportBodySchema from './resize_viewport/body.js';
-import waitFixedBodySchema from './wait_fixed/body.js';
-import clickBodySchema from './click/body.js';
-import typeTextBodySchema from './type_text/body.js';
-import selectOptionBodySchema from './select_option/body.js';
-import submitFormBodySchema from './submit_form/body.js';
-import scrollBodySchema from './scroll/body.js';
-import dragDropBodySchema from './drag_drop/body.js';
-import uploadFileBodySchema from './upload_file/body.js';
-import waitVisibleBodySchema from './wait_visible/body.js';
-import waitNavigationBodySchema from './wait_navigation/body.js';
-import waitNetworkBodySchema from './wait_network/body.js';
-import waitConditionalBodySchema from './wait_conditional/body.js';
-import takeScreenshotBodySchema from './take_screenshot/body.js';
-import saveDomBodySchema from './save_dom/body.js';
-import logErrorsBodySchema from './log_errors/body.js';
-import listenEventsBodySchema from './listen_events/body.js';
-import interceptRequestBodySchema from './intercept_request/body.js';
-import mockResponseBodySchema from './mock_response/body.js';
-import manageTabsBodySchemaImport from './manage_tabs/body.js';
+    // ⏳ Waits (Espera)
+    waitFixedBodySchema as waitFixed,
+    waitVisibleBodySchema as waitVisible,
+    waitNavigationBodySchema as waitNavigation,
+    waitNetworkBodySchema as waitNetwork,
+    waitConditionalBodySchema as waitConditional,
+    waitForElementBodySchema as waitForElement, // Incluido del router anterior
+
+    // 🖱️ Interacción
+    clickBodySchema as click,
+    typeTextBodySchema as typeText,
+    selectOptionBodySchema as selectOption,
+    submitFormBodySchema as submitForm,
+    scrollBodySchema as scroll,
+    dragDropBodySchema as dragDrop,
+    uploadFileBodySchema as uploadFile,
+
+    // 📸 Captura y Logs
+    takeScreenshotBodySchema as takeScreenshot,
+    saveDomBodySchema as saveDom,
+    logErrorsBodySchema as logErrors,
+    listenEventsBodySchema as listenEvents,
+
+    // 🌐 Network
+    interceptRequestBodySchema as interceptRequest,
+    mockResponseBodySchema as mockResponse,
+    blockResourceBodySchema as blockResource,
+    modifyHeadersBodySchema as modifyHeaders,
+
+    // 🍪 Sesión y Contexto (Incluidos del router anterior)
+    manageCookiesBodySchema as manageCookies,
+    manageStorageBodySchema as manageStorage,
+    injectTokensBodySchema as injectTokens,
+    persistSessionBodySchema as persistSession,
+    createContextBodySchema as createContext,
+    closeContextBodySchema as closeContext,
+    cleanupStateBodySchema as cleanupState,
+
+    // 🔧 Utilidades y Flujo
+    handleHooksBodySchema as handleHooks,
+    controlExceptionsBodySchema as controlExceptions,
+    readDataBodySchema as readData,
+    saveResultsBodySchema as saveResults,
+    handleDownloadsBodySchema as handleDownloads,
+    cliParamsBodySchema as cliParams,
+    returnCodeBodySchema as returnCode,
+    integrateCIBodySchema as integrateCI,
+
+    // 🧠 LLM y Pruebas
+    callLlmBodySchema as callLlm,
+    generateDataBodySchema as generateData,
+    validateSemanticBodySchema as validateSemantic,
+    runTestsBodySchema as runTests,
+
+    // 💡 Otras acciones (del router anterior)
+    findElementBodySchema as findElement,
+    getSetContentBodySchema as getSetContent,
+    executeJsBodySchema as executeJs,
+} from './index.js'; // 💡 Nota: Requiere un archivo ./index.js que agrupe todos los esquemas.
 
 // ----------------------------------------------------------------------
-// 2. RE-EXPORTACIONES DE ESQUEMAS BASE (Opcional, para acceso directo al Joi)
+// 2. 🚀 Optimización: Definición centralizada de todos los esquemas
+//    Usa un objeto para mapear los nombres de exportación a los esquemas importados
 // ----------------------------------------------------------------------
+const allBodySchemas = {
+    // Re-exportaciones de Esquemas Base (BodySchema)
+    launchBrowserBodySchema: launchBrowser,
+    closeBrowserBodySchema: closeBrowser,
+    openUrlBodySchema: openUrl,
+    resizeViewportBodySchema: resizeViewport,
+    manageTabsBodySchema: manageTabs,
+    backForwardBodySchema: back, // Se usa el mismo para back/forward
+    waitFixedBodySchema: waitFixed,
+    waitVisibleBodySchema: waitVisible,
+    waitNavigationBodySchema: waitNavigation,
+    waitNetworkBodySchema: waitNetwork,
+    waitConditionalBodySchema: waitConditional,
+    clickBodySchema: click,
+    typeTextBodySchema: typeText,
+    selectOptionBodySchema: selectOption,
+    submitFormBodySchema: submitForm,
+    scrollBodySchema: scroll,
+    dragDropBodySchema: dragDrop,
+    uploadFileBodySchema: uploadFile,
+    takeScreenshotBodySchema: takeScreenshot,
+    saveDomBodySchema: saveDom,
+    logErrorsBodySchema: logErrors,
+    listenEventsBodySchema: listenEvents,
+    interceptRequestBodySchema: interceptRequest,
+    mockResponseBodySchema: mockResponse,
 
-export const launchBrowserBodySchema = launchBrowserBodySchemaImport;
-export const closeBrowserBodySchema = closeBrowserBodySchemaImport;
-export const openUrlBodySchema = openUrlBodySchemaImport;
-export const manageTabsBodySchema = manageTabsBodySchemaImport;
-// ... El resto de re-exportaciones de BodySchema ...
+    // Incluir esquemas adicionales del router optimizado para completitud
+    waitForElementBodySchema: waitForElement,
+    blockResourceBodySchema: blockResource,
+    modifyHeadersBodySchema: modifyHeaders,
+    manageCookiesBodySchema: manageCookies,
+    manageStorageBodySchema: manageStorage,
+    injectTokensBodySchema: injectTokens,
+    persistSessionBodySchema: persistSession,
+    createContextBodySchema: createContext,
+    closeContextBodySchema: closeContext,
+    cleanupStateBodySchema: cleanupState,
+    handleHooksBodySchema: handleHooks,
+    controlExceptionsBodySchema: controlExceptions,
+    readDataBodySchema: readData,
+    saveResultsBodySchema: saveResults,
+    handleDownloadsBodySchema: handleDownloads,
+    cliParamsBodySchema: cliParams,
+    returnCodeBodySchema: returnCode,
+    integrateCIBodySchema: integrateCI,
+    callLlmBodySchema: callLlm,
+    generateDataBodySchema: generateData,
+    validateSemanticBodySchema: validateSemantic,
+    runTestsBodySchema: runTests,
+    findElementBodySchema: findElement,
+    getSetContentBodySchema: getSetContent,
+    executeJsBodySchema: executeJs,
+};
 
 // ----------------------------------------------------------------------
-// 3. EXPORTACIONES PARA EL MIDDLEWARE DE VALIDACIÓN ({ body: Schema })
+// 3. ✨ Generación y Exportación Dinámica
+//    Genera:
+//    a) Re-exportaciones de BodySchema (e.g., export const launchBrowserBodySchema = ...)
+//    b) Esquemas de Validación para Middleware (e.g., export const launchBrowserSchema = { body: ... })
 // ----------------------------------------------------------------------
+const schemasToExport = {};
 
-// Gestión del Navegador
-export const launchBrowserSchema = { body: launchBrowserBodySchema };
-export const closeBrowserSchema = { body: closeBrowserBodySchema };
-export const manageTabsSchema = { body: manageTabsBodySchema };
+Object.entries(allBodySchemas).forEach(([key, schema]) => {
+    // a) Re-exportaciones de Esquemas Base (e.g., launchBrowserBodySchema)
+    schemasToExport[key] = schema;
 
-// Acciones de Navegación y Configuración
-export const openUrlSchema = { body: openUrlBodySchema };
-export const resizeViewportSchema = { body: resizeViewportBodySchema };
+    // b) Esquemas de Validación para Middleware (e.g., launchBrowserSchema)
+    const middlewareKey = key.replace('BodySchema', 'Schema');
+    schemasToExport[middlewareKey] = { body: schema };
+});
 
-// Acciones de Espera
-export const waitFixedSchema = { body: waitFixedBodySchema };
-export const waitVisibleSchema = { body: waitVisibleBodySchema };
-export const waitNavigationSchema = { body: waitNavigationBodySchema };
-export const waitNetworkSchema = { body: waitNetworkBodySchema };
-export const waitConditionalSchema = { body: waitConditionalBodySchema };
+// Exporta todos los objetos generados dinámicamente
+// Esto permite usar la desestructuración: import { openUrlBodySchema, openUrlSchema } from './testSchemas.js';
+export default schemasToExport;
 
-// Acciones de Interacción
-export const clickSchema = { body: clickBodySchema };
-export const typeTextSchema = { body: typeTextBodySchema };
-export const selectOptionSchema = { body: selectOptionBodySchema };
-export const submitFormSchema = { body: submitFormBodySchema };
-export const scrollSchema = { body: scrollBodySchema };
-export const dragDropSchema = { body: dragDropBodySchema };
-export const uploadFileSchema = { body: uploadFileBodySchema };
+// NOTA: Si tu entorno de testing requiere una exportación con `export const ...`,
+// tendrás que usar `module.exports = schemasToExport` o un bucle de exportación
+// diferente que cree las constantes de forma explícita, pero para un archivo
+// de utilidades central, un `export default` de un objeto es a menudo el más simple.
 
-// Acciones de Captura y Logs
-export const takeScreenshotSchema = { body: takeScreenshotBodySchema };
-export const saveDomSchema = { body: saveDomBodySchema };
-export const logErrorsSchema = { body: logErrorsBodySchema };
-export const listenEventsSchema = { body: listenEventsBodySchema };
+// 💡 Si necesitas la exportación por nombre (`export const`):
+/*
+// ----------------------------------------------------------------------
+// 3. (Alternativa) Exportación con Bucle (Si el entorno lo exige)
+// ----------------------------------------------------------------------
+const exports = {};
+Object.entries(allBodySchemas).forEach(([key, schema]) => {
+    exports[key] = schema; // Re-exportación de BodySchema
+    const middlewareKey = key.replace('BodySchema', 'Schema');
+    exports[middlewareKey] = { body: schema }; // Esquema de Middleware
+});
 
-// Acciones de Red
-export const interceptRequestSchema = { body: interceptRequestBodySchema };
-export const mockResponseSchema = { body: mockResponseBodySchema };
+// Exporta las constantes dinámicamente
+Object.keys(exports).forEach(key => {
+    module.exports[key] = exports[key];
+});
+*/

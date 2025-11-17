@@ -13,7 +13,7 @@ import { developmentLogger, productionLogger } from './middlewares/logger.js';
 import errorHandler from './middlewares/errorHandler.js';
 
 // Módulos de Rutas
-import apiRouter from './routes/api.router.js'; // Rutas de Acciones (Originalmente Conectadas al MCP)
+import apiRouter from './routes/api.router.js';
 import mockRouter from './routes/mock.router.js'; // Rutas de Mocks y Configuración (Nodos, Esquemas)
 
 // ❌ Se elimina la importación de connectMCP (ya no es necesaria)
