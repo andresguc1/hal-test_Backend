@@ -14,7 +14,16 @@ const manageTabsBodySchema = Joi.object({
             'any.only': 'La acción debe ser "new", "switch", "close" o "list".',
         }),
 
-    // 2. tabIndex (Número, Condicional)
+    // 2. browserId (Opcional) - 🆕 Añadido
+    // Identificador del navegador objetivo. Si no se envía, el controlador usará el último activo.
+    browserId: Joi.string()
+        .allow(null, '') // Permite que sea nulo o una cadena vacía
+        .optional()
+        .messages({
+            'string.base': 'browserId debe ser una cadena de texto.',
+        }),
+
+    // 3. tabIndex (Número, Condicional)
     tabIndex: Joi.number()
         .integer()
         .min(0)
@@ -33,7 +42,7 @@ const manageTabsBodySchema = Joi.object({
             otherwise: Joi.optional(),
         }),
 
-    // 3. url (String, Condicional)
+    // 4. url (String, Condicional)
     url: Joi.string()
         // Valida que sea una URL válida con protocolo http o https
         .uri({ scheme: ['http', 'https'] })

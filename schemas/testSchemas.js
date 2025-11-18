@@ -4,8 +4,8 @@
 // 1. IMPORTACIÓN DE ESQUEMAS DE CUERPO
 // ----------------------------------------------------------------------
 
-import launchBrowserBodySchemaImport from './launch_browser/body.js'; // ⬅️ Nuevo
-import closeBrowserBodySchemaImport from './close_browser/body.js'; // ⬅️ Nuevo
+import launchBrowserBodySchemaImport from './launch_browser/body.js';
+import closeBrowserBodySchemaImport from './close_browser/body.js';
 import openUrlBodySchemaImport from './open_url/body.js';
 import resizeViewportBodySchema from './resize_viewport/body.js';
 import waitFixedBodySchema from './wait_fixed/body.js';

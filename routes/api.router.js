@@ -50,12 +50,14 @@ import cliParamsBodySchema from '../schemas/cli_params/body.js';
 import returnCodeBodySchema from '../schemas/return_code/body.js';
 import integrateCIBodySchema from '../schemas/integrate_ci/body.js';
 import closeContextBodySchema from '../schemas/close_context/body.js';
+import manageTabsBodySchema from '../schemas/manage_tabs/body.js';
 
-// 🆕 Importar las funciones controladoras REALES conectadas al MCP
+// 🆕 Importar las funciones controladoras
 import {
     openUrlAction,
     launchBrowserAction,
     closeBrowserAction,
+    manageTabsAction,
     dragDropAction,
     resizeViewportAction,
     findElementAction,
@@ -104,11 +106,7 @@ import {
 const router = Router();
 
 // ==========================================================
-// ❌ LÓGICA DE ACCIÓN SIMULADA ELIMINADA (openUrlLogic, launchBrowserLogic, closeBrowserLogic)
-// ==========================================================
-
-// ==========================================================
-// RUTAS DE ACCIONES (Operaciones Playwright - Conectadas al MCP)
+// RUTAS DE ACCIONES (Operaciones Playwright)
 // ==========================================================
 
 // 1. Ruta para launch browser (POST /api/actions/launch_browser)
@@ -116,7 +114,7 @@ router.post(
     '/actions/launch_browser',
     // 🛡️ Validación
     validate({ body: launchBrowserBodySchema }),
-    launchBrowserAction, // ⬅️ CONECTADO AL MCP
+    launchBrowserAction,
 );
 
 // 2. Ruta para abrir una URL (POST /api/actions/open_url)
@@ -124,7 +122,7 @@ router.post(
     '/actions/open_url',
     // 🛡️ Validación
     validate({ body: openUrlBodySchema }),
-    openUrlAction, // ⬅️ CONECTADO AL MCP
+    openUrlAction,
 );
 
 // 3. Ruta para cerrar el navegador (POST /api/actions/close_browser)
@@ -132,7 +130,7 @@ router.post(
     '/actions/close_browser',
     // 🛡️ Validación
     validate({ body: closeBrowserBodySchema }),
-    closeBrowserAction, // ⬅️ CONECTADO AL MCP
+    closeBrowserAction,
 );
 
 // 4. Ruta para drag & drop (POST /api/actions/drag_drop) 🆕
@@ -364,6 +362,14 @@ router.post(
     '/actions/close_context',
     validate({ body: closeContextBodySchema }),
     closeContextAction,
+
+    // 47. Ruta para gestionar pestañas (POST /api/actions/manage_tabs)
+    router.post(
+        '/actions/manage_tabs',
+        // 🛡️ Validación usando el schema definido
+        validate({ body: manageTabsBodySchema }),
+        manageTabsAction,
+    ),
 );
 
 export default router;

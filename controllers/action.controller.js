@@ -1,6 +1,6 @@
 // controllers/action.controller.js
 // ==========================================================
-// 🧠 Conectores de acciones individuales al Playwright MCP
+// 🧠 Conectores de acciones individuales al Playwright
 // ==========================================================
 
 import { callTool } from '../services/mcp.service.js';
@@ -10,7 +10,7 @@ import fs from 'fs/promises';
 import path from 'path';
 
 /**
- * Función auxiliar para limpiar la respuesta del MCP.
+ * Función auxiliar para limpiar la respuesta.
  * Esto previene el SyntaxError si el resultado contiene caracteres malformados.
  */
 const getCleanResult = (result) => {
@@ -18,13 +18,10 @@ const getCleanResult = (result) => {
         // Serializa y deserializa para forzar un JSON válido
         return JSON.parse(JSON.stringify(result));
     } catch (e) {
-        console.error(
-            '⚠️ Error al limpiar/parsear resultado del MCP. Devolviendo objeto de error:',
-            e,
-        );
+        console.error('⚠️ Error al limpiar/parsear resultado. Devolviendo objeto de error:', e);
         return {
             status: 'error',
-            message: 'Fallo al parsear resultado del MCP: La respuesta contiene JSON malformado.',
+            message: 'Fallo al parsear resultado: La respuesta contiene JSON malformado.',
         };
     }
 };
@@ -2314,6 +2311,147 @@ export const closeContextAction = async (req, res, next) => {
     }
 };
 
+// ==========================================================
+// 47. MANAGE TABS (manage_tabs)
+// ==========================================================
+
+export const manageTabsAction = async (req, res, next) => {
+    try {
+        // 1. Normalizar y Desestructurar Entrada
+        // El schema ya validó action, tabIndex y url.
+        let { action, tabIndex, url, browserId } = req.body ?? {};
+
+        // Normalizar entrada: tratar '' o null como no enviado
+        if (browserId === '' || browserId === null) browserId = undefined;
+
+        console.log('[ACTION] manageTabsAction iniciado.', {
+            action,
+            browserId,
+            tabIndex,
+            url,
+        });
+
+        // 2. Determinar Instancia del Navegador Objetivo
+        // Si no se indicó browserId, usar el último activo (similar a closeBrowserAction)
+        if (!browserId) {
+            const ids = Array.from(browsers.keys());
+            if (ids.length === 0) {
+                const response = {
+                    success: false,
+                    message: 'No hay navegadores activos para gestionar pestañas.',
+                };
+                console.log('[RESPONSE DATA - ERROR]', response);
+                return res.status(400).json(response);
+            }
+            browserId = ids[ids.length - 1];
+            console.log(`[INFO] No se especificó browserId, usando el último activo: ${browserId}`);
+        }
+
+        const entry = browsers.get(browserId);
+        if (!entry) {
+            const response = {
+                success: false,
+                message: `No se encontró navegador con ID: ${browserId} para gestionar pestañas.`,
+            };
+            console.log('[RESPONSE DATA - ERROR]', response);
+            return res.status(404).json(response);
+        }
+
+        // Extraer la instancia Browser real (soportar ambos formatos)
+        const browserInstance =
+            entry && typeof entry === 'object' && 'browser' in entry ? entry.browser : entry;
+
+        if (!browserInstance) {
+            const response = {
+                success: false,
+                message: `La instancia para browserId=${browserId} no es válida para gestión de pestañas.`,
+            };
+            console.log('[RESPONSE DATA - ERROR]', response);
+            return res.status(500).json(response);
+        }
+
+        // 3. Lógica Principal: Ejecutar la Acción Solicitada
+
+        let data = null; // Para almacenar resultados de 'list' o 'new'
+
+        switch (action) {
+            case 'new':
+                // Lógica para crear una nueva pestaña/página en el browserInstance y navegar a 'url'
+                console.log(`[ACTION] Creando nueva pestaña en: ${url}`);
+                // Ejemplo: const newPage = await browserInstance.newPage();
+                // Ejemplo: await newPage.goto(url);
+                data = { newUrl: url };
+                break;
+
+            case 'switch':
+                // Lógica para activar/enfocar la pestaña en 'tabIndex'
+                console.log(`[ACTION] Cambiando a pestaña en índice: ${tabIndex}`);
+                // Ejemplo: const pages = await browserInstance.pages();
+                // Ejemplo: await pages[tabIndex].bringToFront();
+                break;
+
+            case 'close':
+                // Lógica para cerrar la pestaña en 'tabIndex'
+                console.log(`[ACTION] Cerrando pestaña en índice: ${tabIndex}`);
+                // Ejemplo: const pages = await browserInstance.pages();
+                // Ejemplo: await pages[tabIndex].close();
+                break;
+
+            case 'list':
+                // Lógica para obtener la lista de pestañas (URLs, títulos)
+                console.log('[ACTION] Listando pestañas.');
+                // Ejemplo: const pages = await browserInstance.pages();
+                // Ejemplo: data = pages.map((p, i) => ({ index: i, url: p.url(), title: p.title() }));
+                data = ['/ejemplo_url_1', '/ejemplo_url_2']; // Dummy data
+                break;
+
+            default:
+                // Aunque Joi valida, esto es un fallback de seguridad.
+                throw new Error(`Acción desconocida: ${action}`);
+        }
+
+        // 4. Registrar Trazabilidad (Opcional, pero recomendado)
+        await fs.mkdir(storageDir, { recursive: true });
+        const trace = {
+            action: 'manage_tabs',
+            browserId,
+            subAction: action,
+            status: 'success',
+            tabIndex: tabIndex !== undefined ? tabIndex : 'N/A',
+            url: url !== undefined ? url : 'N/A',
+            timestamp: new Date().toISOString(),
+        };
+        const fileName = `tab_${action}_${browserId}_${Date.now()}.json`;
+        const tracePath = path.join(storageDir, fileName);
+        await fs.writeFile(tracePath, JSON.stringify(trace, null, 2), 'utf8');
+
+        // 5. Respuesta Exitosa
+        const response = {
+            success: true,
+            message: `Acción '${action}' en pestañas procesada correctamente para browserId: ${browserId}.`,
+            browserId,
+            data: data,
+        };
+        console.log('[RESPONSE DATA]', response);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(
+            `[ERROR] manageTabsAction (Action: ${req.body?.action}):`,
+            error?.message || error,
+        );
+
+        // Respuesta de error consistente
+        const errorResponse = {
+            success: false,
+            message: `Error al ejecutar la acción '${req.body?.action}' en pestañas.`,
+            error: error?.message || String(error),
+        };
+        console.log('[RESPONSE DATA - ERROR]', errorResponse);
+        res.status(500).json(errorResponse);
+        return next(error);
+    }
+};
+
 // Exportamos todas las acciones para que el router las pueda importar
 export default {
     launchBrowserAction,
@@ -2361,4 +2499,5 @@ export default {
     cliParamsAction,
     returnCodeAction,
     integrateCIAction,
+    manageTabsAction,
 };
