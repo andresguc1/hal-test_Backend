@@ -81,7 +81,7 @@ app.listen(PORT, () => {
     console.log(`   HaltTest Backend Server`);
     console.log(`   Corriendo en: http://localhost:${PORT}`);
     console.log(`   Ambiente: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`✅ Servidor iniciado sin conexión a MCP.`);
+    console.log(`✅ Servidor iniciado.`);
     console.log(`================================\n`);
 });
 

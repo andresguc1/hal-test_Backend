@@ -1,6 +1,6 @@
 // controllers/action.controller.js - OPTIMIZADO Y CORREGIDO
 // ==========================================================
-// 🧠 Conectores de acciones individuales al Playwright MCP
+// 🧠 Conectores de acciones individuales al Playwright
 // ==========================================================
 
 import { callTool } from '../services/mcp.service.js';
