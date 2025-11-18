@@ -5,6 +5,7 @@
 
 import { callTool } from '../services/mcp.service.js';
 import { chromium } from 'playwright';
+import { devices } from '@playwright/test';
 import { randomUUID } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
@@ -17,6 +18,7 @@ const storageDir = path.resolve('./storages');
 const MAX_BROWSERS = 10; // Límite para prevenir fugas de memoria
 const TRACE_BATCH_SIZE = 10; // Número de trazas antes de flush
 const TRACE_FLUSH_INTERVAL = 5000; // ms
+const PLAYWRIGHT_DEVICES = devices; // Constante global para los dispositivos
 
 // Cache de trazas en memoria para escritura batch
 let traceBuffer = [];
@@ -668,225 +670,140 @@ export const takeScreenshotAction = (req, res) =>
 // MANAGE TABS OPTIMIZADO
 // ==========================================================
 
-export const manageTabsAction = async (req, res) => {
+export const manageTabsAction = async (req, res, next) => {
     try {
-        const { action, url, tabIndex, waitUntil = 'load', timeout = 30000 } = req.body ?? {};
-        let { browserId } = req.body ?? {};
+        // 1. Desestructurar y Normalizar Entrada
+        let { action, tabIndex, url, browserId } = req.body ?? {};
+        if (browserId === '' || browserId === null) browserId = undefined;
 
-        if (!action) {
-            return res.status(400).json({
+        console.log('[ACTION] manageTabsAction iniciado.', {
+            action,
+            browserId,
+            tabIndex,
+            url,
+        });
+
+        // 2. Obtener la Instancia del Navegador Objetivo (Validación)
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res.status(validation.status).json({
                 success: false,
-                message: 'El campo "action" es requerido.',
+                message: validation.message,
             });
         }
 
-        // Validar y obtener browser
-        if (!browserId || browserId === '' || browserId === null) {
-            const ids = Array.from(browserManager.keys());
-            if (ids.length === 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'No hay navegadores activos. Llama a launch_browser primero.',
-                });
-            }
-            browserId = ids[ids.length - 1];
-            console.log(`[INFO] No se especificó browserId. Usando último activo: ${browserId}`);
-        }
+        const targetBrowserId = validation.browserId;
+        const entry = validation.entry;
+        const browserInstance = entry.browser || entry;
 
-        const entry = browserManager.get(browserId);
-        if (!entry) {
-            return res.status(404).json({
-                success: false,
-                message: `No se encontró navegador con ID: ${browserId}`,
-            });
-        }
-
-        // Normalizar la instancia del browser
-        const browser = entry.browser || entry;
-
-        console.log(`[DEBUG] Browser tipo:`, typeof browser);
-        console.log(`[DEBUG] Browser tiene newContext:`, typeof browser.newContext);
-        console.log(`[DEBUG] Browser tiene contexts:`, typeof browser.contexts);
-
-        // Obtener o crear contexto de forma segura (usa la CORRECCIÓN 1)
+        // 3. Obtener la Página Activa (Usando Contexto) 🆕
         let context;
         try {
-            context = await getOrCreateContext(browser);
+            // Reutilizamos la función robusta getOrCreateContext
+            context = await getOrCreateContext(browserInstance);
         } catch (contextError) {
-            console.error('[ERROR] Error al obtener/crear contexto:', contextError.message);
+            console.error(
+                '[ERROR] Error al obtener contexto para gestión de pestañas:',
+                contextError.message,
+            );
+            if (contextError.message.includes('cerrado')) {
+                browserManager.delete(targetBrowserId);
+            }
             return res.status(500).json({
                 success: false,
-                message: 'Error al obtener contexto de navegación',
+                message: 'Error al obtener contexto de navegación para gestionar pestañas.',
                 error: contextError.message,
-                hint: 'El navegador puede no estar correctamente inicializado. Intenta cerrar y volver a lanzar el navegador.',
             });
         }
 
-        // Validar que el contexto es válido
-        if (!context || typeof context.pages !== 'function') {
-            return res.status(500).json({
+        // Obtener todas las páginas del contexto para las acciones
+        const pages = context.pages();
+        let pageInstance; // Usado para 'new' y como referencia
+
+        if (pages.length === 0 && action !== 'new') {
+            return res.status(400).json({
                 success: false,
-                message: 'Contexto de navegación inválido',
-                hint: 'El contexto no tiene el método pages(). Intenta relanzar el navegador.',
+                message: 'No hay páginas activas para ejecutar esta acción.',
             });
         }
 
-        const getPages = () => context.pages();
-        let result = null;
+        let data = null;
 
+        // 4. Lógica Principal: Ejecutar la Acción Solicitada
         switch (action) {
-            case 'new': {
-                const page = await context.newPage();
-                let duration = null;
-                if (url) {
-                    const start = Date.now();
-                    await page.goto(url, { waitUntil, timeout });
-                    duration = Date.now() - start;
-                }
-                const pages = getPages();
-                result = {
-                    success: true,
-                    message: 'Nueva pestaña creada.',
-                    tabIndex: pages.length - 1,
-                    url: url ?? null,
-                    durationMs: duration,
-                };
+            case 'new':
+                // Crea una nueva pestaña y navega
+                pageInstance = await context.newPage();
+                await pageInstance.goto(url);
+                console.log(`[ACTION] Creando nueva pestaña en: ${url}`);
+                data = { newUrl: url, newIndex: pages.length };
                 break;
-            }
 
-            case 'close': {
-                if (typeof tabIndex !== 'number' || tabIndex < 0) {
-                    return res.status(400).json({
-                        success: false,
-                        message: 'tabIndex inválido. Debe ser un número >= 0',
-                    });
-                }
-                const pages = getPages();
-                if (tabIndex >= pages.length) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `tabIndex fuera de rango. Hay ${pages.length} pestañas.`,
-                    });
-                }
-                await pages[tabIndex].close().catch((err) => {
-                    console.log(`[WARN] Error al cerrar pestaña ${tabIndex}:`, err.message);
-                });
-                result = { success: true, message: 'Pestaña cerrada.', tabIndex };
+            case 'switch':
+                // Cambia el enfoque a la pestaña por índice
+                if (tabIndex >= pages.length)
+                    throw new Error(`Índice de pestaña ${tabIndex} fuera de rango.`);
+                await pages[tabIndex].bringToFront();
+                console.log(`[ACTION] Cambiando a pestaña en índice: ${tabIndex}`);
                 break;
-            }
 
-            case 'switch': {
-                if (typeof tabIndex !== 'number' || tabIndex < 0) {
-                    return res.status(400).json({
-                        success: false,
-                        message: 'tabIndex inválido. Debe ser un número >= 0',
-                    });
-                }
-                const pages = getPages();
-                if (tabIndex >= pages.length) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `tabIndex fuera de rango. Hay ${pages.length} pestañas.`,
-                    });
-                }
-                await pages[tabIndex].bringToFront().catch((err) => {
-                    console.log(`[WARN] Error al traer pestaña al frente:`, err.message);
-                });
-                result = { success: true, message: 'Pestaña activada.', tabIndex };
+            case 'close':
+                // Cierra la pestaña por índice
+                if (tabIndex >= pages.length)
+                    throw new Error(`Índice de pestaña ${tabIndex} fuera de rango.`);
+                await pages[tabIndex].close();
+                console.log(`[ACTION] Cerrando pestaña en índice: ${tabIndex}`);
                 break;
-            }
 
-            case 'navigate': {
-                if (!url || typeof tabIndex !== 'number' || tabIndex < 0) {
-                    return res.status(400).json({
-                        success: false,
-                        message: 'url y tabIndex válido son requeridos para navigate',
-                    });
-                }
-                const pages = getPages();
-                if (tabIndex >= pages.length) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `tabIndex fuera de rango. Hay ${pages.length} pestañas.`,
-                    });
-                }
-                const start = Date.now();
-                await pages[tabIndex].goto(url, { waitUntil, timeout });
-                const duration = Date.now() - start;
-                result = {
-                    success: true,
-                    message: 'Navegación completada.',
-                    tabIndex,
-                    url,
-                    durationMs: duration,
-                };
-                break;
-            }
-
-            case 'list': {
-                const pages = getPages();
-                const tabs = await Promise.all(
-                    pages.map(async (p, i) => {
-                        let pageUrl = null;
-                        let pageTitle = null;
-
-                        try {
-                            pageUrl = typeof p.url === 'function' ? p.url() : p.url;
-                        } catch {
-                            pageUrl = 'N/A';
-                        }
-
-                        try {
-                            pageTitle = typeof p.title === 'function' ? await p.title() : p.title;
-                        } catch {
-                            pageTitle = 'N/A';
-                        }
-
-                        return {
-                            tabIndex: i,
-                            url: pageUrl,
-                            title: pageTitle,
-                        };
-                    }),
+            case 'list':
+                // Lista todas las pestañas
+                data = await Promise.all(
+                    pages.map(async (p, i) => ({
+                        index: i,
+                        url: p.url(),
+                        title: await p.title().catch(() => 'N/A'),
+                    })),
                 );
-                result = { success: true, tabs };
+                console.log('[ACTION] Listando pestañas.');
                 break;
-            }
 
             default:
-                return res.status(400).json({
-                    success: false,
-                    message: `Acción desconocida: ${action}. Acciones válidas: new, close, switch, navigate, list`,
-                });
+                throw new Error(`Acción desconocida: ${action}`);
         }
 
-        // Trazabilidad no bloqueante
+        // 5. Registrar Trazabilidad
         writeTrace({
             action: 'manage_tabs',
-            subtype: action,
-            browserId,
-            result,
+            browserId: targetBrowserId,
+            subAction: action,
+            status: 'success',
+            tabIndex: tabIndex !== undefined ? tabIndex : 'N/A',
+            url: url !== undefined ? url : 'N/A',
         });
 
-        console.log(`[SUCCESS] manage_tabs ${action} completado`);
-        return res.status(200).json(result);
+        // 6. Respuesta Exitosa
+        const response = {
+            success: true,
+            message: `Acción '${action}' en pestañas procesada correctamente para browserId: ${targetBrowserId}.`,
+            browserId: targetBrowserId,
+            data: data,
+        };
+        console.log('[RESPONSE DATA]', response);
+        return res.status(200).json(response);
     } catch (error) {
-        console.error('[ERROR] manageTabsAction:', error.message);
-        console.error('[STACK]', error.stack);
+        console.error(
+            `[ERROR] manageTabsAction (Action: ${req.body?.action}):`,
+            error?.message || error,
+        );
 
-        writeTrace({
-            action: 'manage_tabs',
-            error: error.message,
-            stack: error.stack,
-            status: 'error',
-        });
-
-        return res.status(500).json({
+        const errorResponse = {
             success: false,
-            message: 'Error en manageTabsAction.',
-            error: error.message,
-            hint: 'Verifica que el navegador esté correctamente inicializado.',
-        });
+            message: `Error al ejecutar la acción '${req.body?.action}' en pestañas.`,
+            error: error?.message || String(error),
+        };
+        console.log('[RESPONSE DATA - ERROR]', errorResponse);
+        res.status(500).json(errorResponse);
+        return next(error);
     }
 };
 
@@ -909,22 +826,161 @@ export const dragDropAction = (req, res) =>
         (opts) => `Drag & Drop de ${opts.sourceSelector} a ${opts.targetSelector}`,
     );
 
-export const resizeViewportAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'resize_viewport',
-        (opts) => ({
-            deviceEmulation: opts.deviceEmulation || undefined,
-            width: opts.width,
-            height: opts.height,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        (opts) =>
-            opts.deviceEmulation
-                ? `Viewport redimensionado a ${opts.deviceEmulation}`
-                : `Viewport redimensionado a ${opts.width}x${opts.height}`,
-    );
+export const resizeViewportAction = async (req, res, next) => {
+    try {
+        // 1. Desestructurar y Normalizar Entrada
+        let { browserId, deviceEmulation, width, height } = req.body ?? {};
+
+        if (browserId === '' || browserId === null) browserId = undefined;
+        if (deviceEmulation === '' || deviceEmulation === null) deviceEmulation = undefined;
+
+        console.log('[ACTION] resizeViewportAction iniciado.', {
+            browserId,
+            deviceEmulation,
+            width,
+            height,
+        });
+
+        // 2. Obtener la Instancia del Navegador Objetivo (Validación)
+        // [ASUMIDO] validateBrowser maneja la obtención del ID, entry y browserInstance.
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res
+                .status(validation.status)
+                .json({ success: false, message: validation.message });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const entry = validation.entry;
+        const browserInstance = entry.browser || entry;
+
+        let currentViewport = { width, height, emulation: deviceEmulation || 'N/A' };
+
+        // ==========================================================
+        // 3. Lógica Principal: Emulación vs. Redimensionamiento Manual
+        // ==========================================================
+
+        if (deviceEmulation) {
+            // A. MODO EMULACIÓN COMPLETA (Requiere nuevo contexto)
+
+            const deviceSettings = PLAYWRIGHT_DEVICES[deviceEmulation];
+
+            if (!deviceSettings) {
+                throw new Error(
+                    `Configuración de dispositivo no encontrada para: ${deviceEmulation}. Dispositivos válidos: ${Object.keys(PLAYWRIGHT_DEVICES).join(', ')}`,
+                );
+            }
+
+            console.log(`[ACTION] Aplicando emulación completa de: ${deviceEmulation}`);
+
+            // 3.1. Obtener URL actual (para re-navegar después de la emulación)
+            let currentUrl = 'about:blank';
+            try {
+                // Si la acción previa falló, el objeto 'page' puede no ser válido, usamos una verificación try/catch.
+                const activePage =
+                    entry.page ||
+                    (entry.context
+                        ? entry.context.pages()[entry.context.pages().length - 1]
+                        : null);
+                if (activePage && !activePage.isClosed()) {
+                    currentUrl = activePage.url();
+                }
+            } catch (e) {
+                console.log('[WARN] No se pudo obtener la URL de la página activa.' + e);
+            }
+
+            // 3.2. Cerrar el contexto antiguo y liberar recursos
+            if (entry.context) {
+                await entry.context
+                    .close()
+                    .catch((err) =>
+                        console.log('[WARN] Error al cerrar contexto antiguo:', err.message),
+                    );
+                console.log('[INFO] Contexto antiguo cerrado para aplicar emulación.');
+            }
+
+            // 3.3. Crear Nuevo Contexto con Emulación
+            const newContext = await browserInstance.newContext({
+                ...deviceSettings,
+            });
+            const newPage = await newContext.newPage();
+
+            // Re-navegar a la URL anterior
+            await newPage.goto(currentUrl);
+
+            // 3.4. Actualizar BrowserManager con el nuevo Contexto y Página
+            entry.context = newContext;
+            entry.page = newPage;
+            browserManager.set(targetBrowserId, entry); // Actualizar la referencia
+
+            // Actualizar variables de respuesta
+            currentViewport.width = deviceSettings.viewport.width;
+            currentViewport.height = deviceSettings.viewport.height;
+        } else {
+            // B. MODO REDIMENSIONAMIENTO MANUAL (width/height)
+
+            // 3.1. Obtener la página activa (más robusto)
+            const context = await getOrCreateContext(browserInstance);
+            const pages = context.pages();
+            let pageInstance = null;
+
+            if (pages.length > 0) {
+                pageInstance = pages[pages.length - 1];
+            }
+
+            if (!pageInstance || (pageInstance.isClosed && pageInstance.isClosed())) {
+                pageInstance = await context.newPage();
+                console.log('[INFO] Creando nueva página para setViewport (no había activa).');
+            }
+
+            if (!pageInstance || typeof pageInstance.setViewport !== 'function') {
+                throw new Error(
+                    'La instancia de página activa no tiene el método setViewport. Revise la conexión Playwright.',
+                );
+            }
+
+            // 3.2. Aplicar el Viewport
+            const viewport = { width, height };
+            await pageInstance.setViewport(viewport);
+            console.log(`[ACTION] Viewport ajustado manualmente a: ${width}x${height}`);
+
+            currentViewport.emulation = 'manual';
+        }
+
+        // 4. Registrar Trazabilidad
+        writeTrace({
+            action: 'resize_viewport',
+            browserId: targetBrowserId,
+            status: 'success',
+            deviceEmulation: deviceEmulation || 'manual',
+            width: currentViewport.width,
+            height: currentViewport.height,
+        });
+
+        // 5. Respuesta Exitosa
+        const response = {
+            success: true,
+            message: `Viewport ajustado correctamente en browserId: ${targetBrowserId}.`,
+            browserId: targetBrowserId,
+            currentViewport: currentViewport,
+        };
+        console.log('[RESPONSE DATA]', response);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error('[ERROR] resizeViewportAction:', error?.message || error);
+
+        const errorResponse = {
+            success: false,
+            message: error.message.includes('Configuración de dispositivo no encontrada')
+                ? error.message
+                : 'Error al redimensionar el viewport.',
+            error: error?.message || String(error),
+        };
+        console.log('[RESPONSE DATA - ERROR]', errorResponse);
+        res.status(500).json(errorResponse);
+        return next(error);
+    }
+};
 
 export const findElementAction = (req, res) =>
     executeMcpAction(
