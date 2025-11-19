@@ -1,4 +1,4 @@
-// routes/api.router.js (OPTIMIZADO)
+// routes/api.router.js
 // ==========================================================
 // 🚀 Router optimizado con configuración declarativa
 // ==========================================================
@@ -39,13 +39,15 @@ const actionRoutes = [
         category: 'browser',
     },
     {
-        path: 'back',
+        // 🆕 Cambiar 'back' a 'go_back'
+        path: 'go_back',
         schema: 'backForwardBodySchema',
         action: 'backAction',
         category: 'navigation',
     },
     {
-        path: 'forward',
+        // 🆕 Cambiar 'forward' a 'go_forward'
+        path: 'go_forward',
         schema: 'backForwardBodySchema',
         action: 'forwardAction',
         category: 'navigation',

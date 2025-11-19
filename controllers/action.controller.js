@@ -584,25 +584,107 @@ export const closeBrowserAction = async (req, res) => {
 };
 
 // ==========================================================
-// ACCIONES MCP SIMPLIFICADAS
+// ACCIONES SIMPLIFICADAS
 // ==========================================================
 
-export const clickAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'click',
-        (opts) => ({
-            selector: opts.selector,
-            button: opts.button,
-            clickCount: opts.clickCount,
-            modifiers: opts.modifiers,
-            timeout: opts.timeout,
-            force: opts.force,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        (opts) => `Click ejecutado en ${opts.selector}`,
-    );
+export const clickAction = async (req, res, next) => {
+    try {
+        // 1. Obtener y Validar la Entrada (Asumimos que el middleware Joi ya validó req.body)
+        const { selector, button, clickCount, modifiers, timeout, force, browserId } = req.body;
+
+        console.log('[ACTION] clickAction iniciado.', {
+            selector,
+            browserId,
+            button,
+            clickCount,
+        });
+
+        // 2. Obtener la Instancia del Navegador Objetivo (Validación)
+        // [ASUMIDO] validateBrowser es una función helper que verifica el ID y devuelve la entrada/ID.
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res
+                .status(validation.status)
+                .json({ success: false, message: validation.message });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const entry = validation.entry;
+        const browserInstance = entry.browser || entry;
+
+        // 3. Obtener la Página Activa (Usando Contexto)
+        // [ASUMIDO] getOrCreateContext y el manejo de páginas es robusto.
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let pageInstance;
+
+        if (pages.length === 0) {
+            throw new Error('No hay páginas activas en el contexto para ejecutar la acción click.');
+        }
+
+        // Usamos la última página activa como objetivo
+        pageInstance = pages[pages.length - 1];
+
+        if (pageInstance.isClosed && pageInstance.isClosed()) {
+            throw new Error('La página objetivo está cerrada.');
+        }
+
+        // 4. Configurar Opciones de la Acción Playwright
+        const clickOptions = {
+            button: button,
+            clickCount: clickCount,
+            modifiers: modifiers, // Puede ser undefined si no se envió, Playwright lo maneja.
+            timeout: timeout,
+            force: force,
+            // Playwright permite 'delay', 'position', 'noWaitAfter', que podrían añadirse al schema si son necesarios.
+        };
+
+        // 5. Ejecutar la Acción Playwright
+        await pageInstance.click(selector, clickOptions);
+
+        // 6. Registrar Trazabilidad
+        // [ASUMIDO] writeTrace es una función helper.
+        writeTrace({
+            action: 'click',
+            browserId: targetBrowserId,
+            status: 'success',
+            selector,
+            details: clickOptions,
+        });
+
+        // 7. Respuesta Exitosa
+        const response = {
+            success: true,
+            message: `Clic exitoso en selector '${selector}' para browserId: ${targetBrowserId}.`,
+            browserId: targetBrowserId,
+            data: clickOptions,
+        };
+        console.log('[RESPONSE DATA]', response);
+        return res.status(200).json(response);
+    } catch (error) {
+        // 8. Manejo de Errores (incluye errores de Playwright, como selector no encontrado)
+        const errorMessage = error?.message || String(error);
+
+        // Registrar error en la traza
+        writeTrace({
+            action: 'click',
+            browserId: req.body?.browserId,
+            status: 'error',
+            selector: req.body?.selector,
+            error: errorMessage,
+        });
+
+        console.error(`[ERROR] clickAction (Selector: ${req.body?.selector}):`, errorMessage);
+
+        const errorResponse = {
+            success: false,
+            message: `Error al ejecutar click en selector '${req.body?.selector}': ${errorMessage.substring(0, 100)}...`,
+            error: errorMessage,
+        };
+        res.status(500).json(errorResponse);
+        return next(error);
+    }
+};
 
 export const typeTextAction = (req, res) =>
     executeMcpAction(
@@ -1550,37 +1632,70 @@ export const closeContextAction = (req, res) =>
 // Acciones de navegación básicas (back/forward)
 export const backAction = async (req, res) => {
     try {
+        // 1. Desestructurar y Normalizar Entrada
         const { browserId } = req.body ?? {};
-        const validation = validateBrowser(browserId);
 
+        console.log('[ACTION] backAction iniciado.', { browserId });
+
+        // 2. Obtener la Instancia del Navegador Objetivo (Validación)
+        const validation = validateBrowser(browserId);
         if (validation.error) {
-            return res.status(validation.status).json({
-                success: false,
-                message: validation.message,
-            });
+            return res
+                .status(validation.status)
+                .json({ success: false, message: validation.message });
         }
 
-        const browser = validation.entry.browser || validation.entry;
-        const context = await getOrCreateContext(browser);
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+
+        // 3. Obtener la Página Activa
+        const context = await getOrCreateContext(browserInstance);
         const pages = context.pages();
 
         if (pages.length > 0) {
-            await pages[0].goBack();
-            writeTrace({ action: 'back', browserId: validation.browserId });
+            const pageInstance = pages[pages.length - 1]; // Usar la última página activa
+
+            // 4. Ejecutar la Acción Playwright
+            // page.goBack() retorna la respuesta de la navegación o null si no hay historial
+            const response = await pageInstance.goBack();
+
+            if (response === null) {
+                const message = 'No hay historial de navegación hacia atrás en esta pestaña.';
+                console.log(`[INFO] ${message}`);
+
+                // Respuesta 400 ya que la acción no es posible por el estado del historial
+                return res.status(400).json({
+                    success: false,
+                    message: message,
+                    browserId: targetBrowserId,
+                });
+            }
+
+            // 5. Registrar Trazabilidad
+            writeTrace({
+                action: 'go_back',
+                browserId: targetBrowserId,
+                status: 'success',
+            });
+
+            // 6. Respuesta Exitosa
             return res.status(200).json({
                 success: true,
-                message: 'Navegación hacia atrás completada',
+                message: `Navegación 'Atrás' exitosa en browserId: ${targetBrowserId}.`,
+                browserId: targetBrowserId,
+                newUrl: pageInstance.url(),
             });
         }
 
         return res.status(400).json({
             success: false,
-            message: 'No hay páginas activas',
+            message: 'No hay páginas activas para navegar hacia atrás.',
         });
     } catch (error) {
+        console.error('[ERROR] backAction:', error.message);
         return res.status(500).json({
             success: false,
-            message: 'Error en navegación back',
+            message: 'Error en navegación hacia atrás.',
             error: error.message,
         });
     }
@@ -1588,37 +1703,70 @@ export const backAction = async (req, res) => {
 
 export const forwardAction = async (req, res) => {
     try {
+        // 1. Desestructurar y Normalizar Entrada
         const { browserId } = req.body ?? {};
-        const validation = validateBrowser(browserId);
 
+        console.log('[ACTION] forwardAction iniciado.', { browserId });
+
+        // 2. Obtener la Instancia del Navegador Objetivo (Validación)
+        const validation = validateBrowser(browserId);
         if (validation.error) {
-            return res.status(validation.status).json({
-                success: false,
-                message: validation.message,
-            });
+            return res
+                .status(validation.status)
+                .json({ success: false, message: validation.message });
         }
 
-        const browser = validation.entry.browser || validation.entry;
-        const context = await getOrCreateContext(browser);
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+
+        // 3. Obtener la Página Activa
+        const context = await getOrCreateContext(browserInstance);
         const pages = context.pages();
 
         if (pages.length > 0) {
-            await pages[0].goForward();
-            writeTrace({ action: 'forward', browserId: validation.browserId });
+            const pageInstance = pages[pages.length - 1]; // Usar la última página activa
+
+            // 4. Ejecutar la Acción Playwright
+            // page.goForward() retorna la respuesta de la navegación o null si no hay historial
+            const response = await pageInstance.goForward();
+
+            if (response === null) {
+                const message = 'No hay historial de navegación hacia adelante en esta pestaña.';
+                console.log(`[INFO] ${message}`);
+
+                // Respuesta 400 ya que la acción no es posible por el estado del historial
+                return res.status(400).json({
+                    success: false,
+                    message: message,
+                    browserId: targetBrowserId,
+                });
+            }
+
+            // 5. Registrar Trazabilidad
+            writeTrace({
+                action: 'go_forward',
+                browserId: targetBrowserId,
+                status: 'success',
+            });
+
+            // 6. Respuesta Exitosa
             return res.status(200).json({
                 success: true,
-                message: 'Navegación hacia adelante completada',
+                message: `Navegación 'Adelante' exitosa en browserId: ${targetBrowserId}.`,
+                browserId: targetBrowserId,
+                newUrl: pageInstance.url(),
             });
         }
 
         return res.status(400).json({
             success: false,
-            message: 'No hay páginas activas',
+            message: 'No hay páginas activas para navegar hacia adelante.',
         });
     } catch (error) {
+        console.error('[ERROR] forwardAction:', error.message);
         return res.status(500).json({
             success: false,
-            message: 'Error en navegación forward',
+            message: 'Error en navegación hacia adelante.',
             error: error.message,
         });
     }
