@@ -686,21 +686,134 @@ export const clickAction = async (req, res, next) => {
     }
 };
 
-export const typeTextAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'type_text',
-        (opts) => ({
-            selector: opts.selector,
-            text: opts.text,
-            clearBeforeType: opts.clearBeforeType,
-            delay: opts.delay,
-            timeout: opts.timeout,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        (opts) => `Texto ingresado en ${opts.selector}`,
-    );
+export const typeTextAction = async (req, res, next) => {
+    try {
+        // 1. Obtener y Validar la Entrada (Asumimos que el middleware Joi ya validó req.body)
+        const { selector, text, clearBeforeType, delay, timeout, browserId } = req.body;
+
+        console.log('[ACTION] typeTextAction iniciado.', {
+            selector,
+            browserId,
+            delay,
+            clearBeforeType,
+        });
+
+        // 2. Obtener la Instancia del Navegador Objetivo (Validación)
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res
+                .status(validation.status)
+                .json({ success: false, message: validation.message });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const entry = validation.entry;
+        const browserInstance = entry.browser || entry;
+
+        // 🚨 VERIFICACIÓN DE VIGOROSIDAD DEL NAVEGADOR
+        // Asegura que la instancia de Playwright Browser esté conectada antes de continuar.
+        if (typeof browserInstance.isConnected === 'function' && !browserInstance.isConnected()) {
+            throw new Error(
+                'El navegador Playwright está desconectado. La instancia ha sido cerrada o ha perdido la conexión.',
+            );
+        }
+
+        // 3. Obtener la Página Activa
+        // [ASUMIDO] getOrCreateContext maneja la conexión al motor de Playwright.
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let pageInstance;
+
+        if (pages.length === 0) {
+            throw new Error(
+                'No hay páginas activas en el contexto para ejecutar la acción de escribir texto.',
+            );
+        }
+
+        // Usamos la última página activa como objetivo
+        pageInstance = pages[pages.length - 1];
+
+        if (pageInstance.isClosed && pageInstance.isClosed()) {
+            throw new Error('La página objetivo está cerrada.');
+        }
+
+        // 4. Configurar Opciones y Ejecutar la Acción Playwright
+        const actionOptions = {
+            timeout: timeout,
+        };
+
+        if (delay > 0) {
+            // A. Usar page.type() para simular pulsación humana con delay.
+
+            if (clearBeforeType) {
+                // Borrar el campo antes de escribir.
+                await pageInstance.fill(selector, '', actionOptions);
+                console.log(`[INFO] Campo borrado antes de escribir en selector: ${selector}.`);
+            }
+
+            await pageInstance.type(selector, text, {
+                ...actionOptions,
+                delay: delay,
+            });
+
+            console.log(`[ACTION] Texto ingresado usando page.type() con delay: ${delay}ms.`);
+        } else {
+            // B. Usar page.fill() para la entrada de texto más rápida.
+            await pageInstance.fill(selector, text, actionOptions);
+
+            console.log(`[ACTION] Texto ingresado usando page.fill().`);
+        }
+
+        // 5. Registrar Trazabilidad
+        writeTrace({
+            action: 'type_text',
+            browserId: targetBrowserId,
+            status: 'success',
+            selector,
+            textLength: text.length,
+            delay: delay,
+        });
+
+        // 6. Respuesta Exitosa
+        const response = {
+            success: true,
+            message: `Texto ingresado exitosamente en selector '${selector}' para browserId: ${targetBrowserId}.`,
+            browserId: targetBrowserId,
+            textLength: text.length,
+        };
+        console.log('[RESPONSE DATA]', response);
+        return res.status(200).json(response);
+    } catch (error) {
+        // 7. Manejo de Errores
+        const errorMessage = error?.message || String(error);
+
+        // Si el error indica desconexión, limpiar el estado del BrowserManager
+        if (errorMessage.includes('desconectada') || errorMessage.includes('closed')) {
+            browserManager.delete(req.body?.browserId);
+            console.log(
+                `[WARN] Browser ID ${req.body?.browserId} eliminado del manager debido a desconexión.`,
+            );
+        }
+
+        writeTrace({
+            action: 'type_text',
+            browserId: req.body?.browserId,
+            status: 'error',
+            selector: req.body?.selector,
+            error: errorMessage,
+        });
+
+        console.error(`[ERROR] typeTextAction (Selector: ${req.body?.selector}):`, errorMessage);
+
+        const errorResponse = {
+            success: false,
+            message: `Error al ingresar texto en selector '${req.body?.selector}'.`,
+            error: errorMessage,
+        };
+        res.status(500).json(errorResponse);
+        return next(error);
+    }
+};
 
 export const scrollAction = (req, res) =>
     executeMcpAction(

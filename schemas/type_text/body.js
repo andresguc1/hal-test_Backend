@@ -31,12 +31,10 @@ const typeTextBodySchema = Joi.object({
         'number.min': 'El tiempo de espera (timeout) debe ser al menos 1ms.',
     }),
 
-    // 6. browserId (ID del navegador objetivo) 🆕
+    // 6. browserId (ID del navegador objetivo)
     browserId: Joi.string().allow(null, '').optional().messages({
         'string.base': 'browserId debe ser una cadena de texto (el ID único del navegador).',
     }),
-})
-    // Bloquea cualquier campo extra que no esté definido.
-    .unknown(false);
+}).unknown(false);
 
 export default typeTextBodySchema;
