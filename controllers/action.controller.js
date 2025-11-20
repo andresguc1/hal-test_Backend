@@ -317,6 +317,41 @@ async function executeMcpAction(req, res, toolName, mcpArgsBuilder, successMessa
     }
 }
 
+// async function getActiveBrowserContext(browserId) {
+//     // Asume que 'browserManager' y 'getOrCreateContext' están disponibles en el ámbito
+//     const ids = Array.from(browserManager.keys());
+
+//     if (ids.length === 0) return null;
+
+//     // Si no se proporciona un ID, usa el ID del último navegador registrado
+//     const id = browserId || ids[ids.length - 1];
+//     const entry = browserManager.get(id);
+
+//     if (!entry) return null;
+
+//     // Obtener la instancia del navegador (puede ser el objeto 'browser' o el 'entry' mismo)
+//     const browserInstance = entry.browser || entry;
+
+//     try {
+//         // Obtener o crear el contexto predeterminado (o el único) del navegador
+//         const context = await getOrCreateContext(browserInstance);
+//         const pages = context.pages();
+
+//         if (pages.length === 0) return null;
+
+//         // Usar la última página abierta como la "página activa"
+//         const page = pages[pages.length - 1];
+
+//         // Verificar si la página está cerrada antes de devolverla
+//         if (page.isClosed && page.isClosed()) return null;
+
+//         return { page, browserId: id };
+//     } catch (err) {
+//         console.error('[ERROR] Error al obtener contexto activo:', err.message);
+//         return null;
+//     }
+// }
+
 // ==========================================================
 // ACCIONES OPTIMIZADAS
 // ==========================================================
@@ -1308,20 +1343,137 @@ export const waitForElementAction = async (req, res) => {
     }
 };
 
-export const executeJsAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'execute_js',
-        (opts) => ({
-            script: opts.script,
-            returnValue: opts.returnValue,
-            ...(opts.returnValue && { variableName: opts.variableName }),
-            ...(opts.args && { args: opts.args }),
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        () => `JavaScript ejecutado`,
-    );
+export const executeJsAction = async (req, res) => {
+    try {
+        // Los valores ya están validados por Joi
+        const { script, returnValue, variableName, args } = req.body ?? {};
+
+        // === LÓGICA DE OBTENCIÓN DE NAVEGADOR Y PÁGINA (CORREGIDA) ===
+        // 1. Obtener y Validar la Instancia del Navegador
+        let { browserId } = req.body ?? {};
+        if (browserId === '' || browserId === null) browserId = undefined;
+
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res.status(validation.status).json({
+                success: false,
+                message: validation.message,
+            });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+
+        // 2. Obtener la Página Activa (Usando Contexto)
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let page;
+
+        if (pages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No hay páginas activas en el contexto para ejecutar JS.',
+                hint: 'Asegúrate de haber abierto una URL con open_url.',
+            });
+        }
+
+        // Usamos la última página activa como objetivo
+        page = pages[pages.length - 1];
+
+        if (page.isClosed && page.isClosed()) {
+            throw new Error('La página objetivo está cerrada para ejecutar JS.');
+        }
+
+        const finalBrowserId = targetBrowserId; // Usar el ID validado
+        // === FIN DE LÓGICA DE OBTENCIÓN ===
+
+        const start = Date.now();
+
+        // 3. Preparar los argumentos y la función de parseo
+        const safeParseArgs = (argsString) => {
+            if (!argsString || argsString.trim() === '') {
+                return [];
+            }
+            try {
+                // Asume que los argumentos vienen como un string JSON (ej: '["arg1", 123]')
+                const parsedArgs = JSON.parse(argsString);
+                if (!Array.isArray(parsedArgs)) {
+                    console.warn(
+                        '[WARN] Los argumentos de execute_js no son un array JSON. Se usarán como un solo argumento.',
+                    );
+                    return [parsedArgs];
+                }
+                return parsedArgs;
+            } catch (e) {
+                console.error('[ERROR] Error al parsear argumentos JSON:', e.message);
+                // Si falla el parseo JSON, devuelve el string como un único argumento.
+                return [argsString];
+            }
+        };
+
+        // CORRECCIÓN: Definir parsedArgs en el ámbito correcto para usarlo en console.log y page.evaluate
+        const parsedArgs = safeParseArgs(args);
+
+        console.log(
+            `[INFO] Ejecutando JS. Retorno esperado: ${returnValue}. Argumentos:`,
+            parsedArgs,
+        );
+
+        let scriptResult = null;
+        // let resultSaved = false;
+
+        // Ejecutar Playwright: page.evaluate()
+        scriptResult = await page.evaluate(script, ...parsedArgs);
+
+        const duration = Date.now() - start;
+
+        const traceData = {
+            action: 'execute_js',
+            script: script.substring(0, 50) + '...',
+            durationMs: duration,
+            status: 'success',
+            browserId: finalBrowserId,
+        };
+
+        const responseData = {
+            success: true,
+            message: 'Script JavaScript ejecutado correctamente.',
+            durationMs: duration,
+            browserId: finalBrowserId,
+        };
+
+        // 4. Manejar el valor de retorno (si se solicita)
+        if (returnValue) {
+            // Asumiendo una utilidad global (como globalStateManager) para guardar la variable
+            // globalStateManager.setVariable(variableName, scriptResult);
+
+            responseData.message += ` Valor guardado en la variable: ${variableName}.`;
+            responseData.variableName = variableName;
+            responseData.resultValue = scriptResult;
+            // resultSaved = true;
+            traceData.resultValue = scriptResult;
+            traceData.variableName = variableName;
+        }
+
+        writeTrace(traceData);
+
+        return res.status(200).json(responseData);
+    } catch (error) {
+        console.error('[ERROR] executeJsAction:', error.message);
+
+        writeTrace({
+            action: 'execute_js',
+            error: error.message,
+            status: 'error',
+        });
+
+        return res.status(500).json({
+            success: false,
+            message: 'Error al ejecutar el script JavaScript.',
+            error: error.message,
+        });
+    }
+};
 
 export const selectOptionAction = (req, res) =>
     executeMcpAction(

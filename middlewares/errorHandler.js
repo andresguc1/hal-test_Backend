@@ -8,16 +8,15 @@
  * @param {Error} err - El objeto de error lanzado.
  * @param {import('express').Request} req - Objeto de solicitud.
  * @param {import('express').Response} res - Objeto de respuesta.
- * @param {import('express').NextFunction} next - Función para pasar el control.
+ * @param {import('express').NextFunction} _next - Función para pasar el control.
+ * (DEBE ESTAR PRESENTE PARA RECONOCIMIENTO)
  */
 const errorHandler = (err, req, res) => {
+    // 🔑 CORRECCIÓN: Agregar 'next'
     // 1. Determinar el código de estado.
-    // Usamos el código de estado adjunto al error (ej: 400 de nuestro validator),
-    // o por defecto 500 (Internal Server Error).
     const statusCode = err.statusCode || 500;
 
     // 2. Determinar el mensaje de error.
-    // Si es un error 500 en producción, usamos un mensaje genérico por seguridad.
     const message =
         statusCode === 500 && process.env.NODE_ENV === 'production'
             ? 'Error interno del servidor. Intente nuevamente más tarde.'
@@ -43,6 +42,9 @@ const errorHandler = (err, req, res) => {
         // Opcional: incluir el stack trace solo en desarrollo
         ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
     });
+
+    // NOTA: No se llama a next() aquí porque este es el final del manejo de errores
+    // y Express no necesita continuar el procesamiento.
 };
 
 export default errorHandler;

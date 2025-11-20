@@ -17,6 +17,7 @@ const executeJsBodySchema = Joi.object({
     // 3. variableName (Requerido CONDICIONAL)
     variableName: Joi.string()
         .trim()
+        .allow('')
         .when('returnValue', {
             // Si returnValue es true, variableName es obligatorio.
             is: true,

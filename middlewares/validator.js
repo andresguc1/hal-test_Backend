@@ -1,9 +1,12 @@
+// middlewares/validate.js
+
 import Joi from 'joi';
 
 /**
  * Middleware genérico para validar el cuerpo (body), los parámetros (params)
  * y/o los queries de una solicitud contra un esquema Joi.
- * * @param {object} schemas - Un objeto que contiene los esquemas Joi para 'body', 'params' y/o 'query'.
+ *
+ * @param {object} schemas - Un objeto que contiene los esquemas Joi para 'body', 'params' y/o 'query'.
  * @returns {function} Un middleware de Express.
  */
 const validate = (schemas) => (req, res, next) => {
@@ -16,7 +19,7 @@ const validate = (schemas) => (req, res, next) => {
             // Solo incluimos la clave si se proporcionó un esquema
             masterSchemaObject[key] = schemas[key];
 
-            // Recolectamos los datos de la solicitud (usando objeto vacío si no existe, p. ej., body vacío)
+            // Recolectamos los datos de la solicitud (usando objeto vacío si no existe)
             validationData[key] = req[key] || {};
         }
     }
@@ -26,7 +29,7 @@ const validate = (schemas) => (req, res, next) => {
         return next();
     }
 
-    // 2. Definir el esquema maestro (ahora solo contiene esquemas válidos)
+    // 2. Definir el esquema maestro
     const masterSchema = Joi.object(masterSchemaObject);
 
     // 3. Opciones de validación
@@ -39,19 +42,24 @@ const validate = (schemas) => (req, res, next) => {
     const { error, value } = masterSchema.validate(validationData, options);
 
     if (error) {
-        // 5. Crear el objeto de detalles de error
-        const errorDetails = error.details.map((detail) => ({
-            // El .path[1] es el campo real (ej: 'url').
-            field: detail.path[1] || detail.context.key,
-            // Limpia comillas del mensaje
-            message: detail.message.replace(/['"]/g, ''),
-        }));
+        // 5. Crear el objeto de detalles de error, añadiendo el 'location' (body/params/query)
+        const errorDetails = error.details.map((detail) => {
+            // El path siempre empieza con la ubicación (ej: ['body', 'url'])
+            const location = detail.path[0];
 
-        // 🚨 CORRECCIÓN CRÍTICA: Volver a pasar el error a 'next(error)'.
-        // Esto soluciona el `TypeError: res.status is not a function` en los unit tests.
-        // La responsabilidad de enviar el 400 recae ahora en un middleware de manejo de errores global.
+            // El .path[1] es el campo real (ej: 'url'). Usamos .slice(1) para manejar sub-objetos.
+            const field = detail.path.slice(1).join('.') || detail.context.key;
+
+            return {
+                field: field,
+                location: location, // 💡 MEJORA: Indica si el error es en body, params o query.
+                message: detail.message.replace(/['"]/g, ''), // Limpia comillas del mensaje
+            };
+        });
+
+        // 🚨 Creación del error para el manejador centralizado
         const validationError = new Error('Error de validación de datos en la solicitud.');
-        validationError.statusCode = 400; // Asignamos el status code esperado
+        validationError.statusCode = 400;
         validationError.details = errorDetails;
 
         return next(validationError);
