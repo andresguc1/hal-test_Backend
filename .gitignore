@@ -83,3 +83,6 @@ $RECYCLE.BIN/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Storages
+/storages/

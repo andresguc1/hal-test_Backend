@@ -1208,19 +1208,105 @@ export const getSetContentAction = (req, res) =>
             `Contenido ${opts.action === 'set' ? 'establecido' : 'obtenido'} en ${opts.selector}`,
     );
 
-export const waitForElementAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'wait_for_element',
-        (opts) => ({
-            selector: opts.selector,
-            condition: opts.condition,
-            timeout: opts.timeout,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        (opts) => `Elemento ${opts.selector} cumple condición ${opts.condition}`,
-    );
+export const waitForElementAction = async (req, res) => {
+    try {
+        const { selector, condition, timeout, browserId } = req.body ?? {};
+
+        // === INICIO DE CORRECCIÓN: Obtener Browser y Page (Lógica Reutilizada) ===
+        // 1. Obtener y Validar la Instancia del Navegador
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res.status(validation.status).json({
+                success: false,
+                message: validation.message,
+            });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+
+        // 2. Obtener la Página Activa (Usando Contexto)
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let page;
+
+        if (pages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No hay páginas activas en el contexto para ejecutar la acción de espera.',
+                hint: 'Asegúrate de haber abierto una URL con open_url.',
+            });
+        }
+
+        // Usamos la última página activa como objetivo
+        page = pages[pages.length - 1];
+
+        if (page.isClosed && page.isClosed()) {
+            throw new Error('La página objetivo está cerrada.');
+        }
+
+        const finalBrowserId = targetBrowserId;
+        // === FIN DE CORRECCIÓN ===
+
+        const start = Date.now();
+
+        // Mapear la condición a la opción de Playwright
+        const stateMapping = {
+            visible: 'visible',
+            hidden: 'hidden',
+            attached: 'attached',
+            detached: 'detached',
+        };
+        const state = stateMapping[condition] || 'visible';
+
+        console.log(
+            `[INFO] Esperando elemento: ${selector}, condición: ${condition} (state: ${state})`,
+        );
+
+        // Ejecución de Playwright: page.waitForSelector
+        await page.waitForSelector(selector, {
+            state: state,
+            timeout: timeout,
+        });
+
+        const duration = Date.now() - start;
+
+        writeTrace({
+            action: 'wait_for_element',
+            selector,
+            condition,
+            status: 'success',
+            durationMs: duration,
+            browserId: finalBrowserId, // Usar la variable correcta
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `Elemento ${selector} encontrado en estado "${condition}".`,
+            selector,
+            condition,
+            durationMs: duration,
+            browserId: finalBrowserId, // Usar la variable correcta
+        });
+    } catch (error) {
+        console.error('[ERROR] waitForElementAction:', error.message);
+
+        writeTrace({
+            action: 'wait_for_element',
+            error: error.message,
+            status: 'error',
+        });
+
+        const status = error.message.includes('Timeout') ? 408 : 500;
+
+        return res.status(status).json({
+            success: false,
+            message: 'Error al esperar el elemento. Timeout o error interno.',
+            error: error.message,
+            selector: req.body.selector,
+        });
+    }
+};
 
 export const executeJsAction = (req, res) =>
     executeMcpAction(
