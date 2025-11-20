@@ -1475,20 +1475,126 @@ export const executeJsAction = async (req, res) => {
     }
 };
 
-export const selectOptionAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'select_option',
-        (opts) => ({
-            selector: opts.selector,
-            selectionCriteria: opts.selectionCriteria,
-            selectionValue: opts.selectionValue,
-            timeout: opts.timeout,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        (opts) => `Opción seleccionada en ${opts.selector}`,
-    );
+export const selectOptionAction = async (req, res) => {
+    try {
+        // Los valores ya están validados por Joi
+        const { selector, selectionCriteria, selectionValue, timeout } = req.body ?? {};
+
+        // === Lógica de Obtención de Browser y Page (CORREGIDA) ===
+        let { browserId } = req.body ?? {};
+        if (browserId === '' || browserId === null) browserId = undefined;
+
+        // 1. Obtener y Validar la Instancia del Navegador
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res.status(validation.status).json({
+                success: false,
+                message: validation.message,
+            });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+
+        // 2. Obtener la Página Activa (Usando Contexto)
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let page;
+
+        if (pages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message:
+                    'No hay páginas activas en el contexto para ejecutar la acción de selección.',
+                hint: 'Asegúrate de haber abierto una URL con open_url.',
+            });
+        }
+
+        // Usamos la última página activa como objetivo
+        page = pages[pages.length - 1];
+
+        if (page.isClosed && page.isClosed()) {
+            throw new Error('La página objetivo está cerrada.');
+        }
+
+        const finalBrowserId = targetBrowserId;
+        const start = Date.now();
+        // === FIN DE LÓGICA CORREGIDA ===
+
+        // 2. Preparar el argumento para page.selectOption()
+        let playwrightSelectArg;
+
+        // Playwright permite seleccionar por value, label o index.
+        switch (selectionCriteria) {
+            case 'value':
+                playwrightSelectArg = { value: selectionValue };
+                break;
+            case 'label':
+                playwrightSelectArg = { label: selectionValue };
+                break;
+            case 'index': {
+                // <-- Añadimos llave de apertura
+                const index = parseInt(selectionValue, 10);
+                if (isNaN(index)) {
+                    throw new Error(
+                        "El valor de selección para 'index' debe ser un número entero.",
+                    );
+                }
+                playwrightSelectArg = { index: index };
+                break;
+            }
+
+            default:
+                throw new Error(`Criterio de selección no soportado: ${selectionCriteria}`);
+        }
+
+        console.log(
+            `[INFO] Seleccionando opción en ${selector} por ${selectionCriteria}. Valor: ${selectionValue}`,
+        );
+
+        // 3. Ejecución de Playwright: page.selectOption()
+        const selectedValues = await page.selectOption(selector, playwrightSelectArg, {
+            timeout: timeout,
+        });
+
+        const duration = Date.now() - start;
+
+        writeTrace({
+            action: 'select_option',
+            selector,
+            selectionCriteria,
+            selectionValue,
+            status: 'success',
+            durationMs: duration,
+            browserId: finalBrowserId,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `Opción seleccionada correctamente en ${selector}.`,
+            selectedValues,
+            durationMs: duration,
+            browserId: finalBrowserId,
+        });
+    } catch (error) {
+        console.error('[ERROR] selectOptionAction:', error.message);
+
+        writeTrace({
+            action: 'select_option',
+            error: error.message,
+            status: 'error',
+        });
+
+        const status = error.message.includes('Timeout') ? 408 : 500;
+
+        return res.status(status).json({
+            success: false,
+            message: 'Error al seleccionar la opción del dropdown.',
+            error: error.message,
+            selector: req.body.selector,
+        });
+    }
+};
 
 export const submitFormAction = (req, res) =>
     executeMcpAction(
