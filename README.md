@@ -94,8 +94,8 @@ To see the full list of available actions and their required schemas, consult th
 
 ## 👤 Author
 
-andresguc <andresguc@gmail.com>
+andresguc <https://andresguc.super.site/>
 
 ## 📄 License
 
-ISC
+MIT
