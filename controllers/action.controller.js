@@ -7,7 +7,7 @@ import { callTool } from '../services/mcp.service.js';
 import { chromium } from 'playwright';
 import { devices } from '@playwright/test';
 import { randomUUID } from 'crypto';
-import fs from 'fs/promises';
+import fs from 'fs';
 import path from 'path';
 
 // ==========================================================
@@ -19,10 +19,21 @@ const MAX_BROWSERS = 10; // Límite para prevenir fugas de memoria
 const TRACE_BATCH_SIZE = 10; // Número de trazas antes de flush
 const TRACE_FLUSH_INTERVAL = 5000; // ms
 const PLAYWRIGHT_DEVICES = devices; // Constante global para los dispositivos
+const DEFAULT_SCREENSHOT_PATH = 'storages/screenshots'; // Ruta por defecto para capturas
 
 // Cache de trazas en memoria para escritura batch
 let traceBuffer = [];
 let lastFlushTime = Date.now();
+
+/**
+ * Genera un nombre de archivo único basado en la fecha-hora.
+ * @param {string} format - El formato de la imagen ('png' o 'jpeg').
+ * @returns {string} Nombre de archivo único.
+ */
+const generateUniqueFilename = (format) => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    return `screenshot_${timestamp}.${format}`;
+};
 
 // ==========================================================
 // GESTIÓN MEJORADA DE BROWSERS
@@ -1024,22 +1035,164 @@ export const waitVisibleAction = (req, res) =>
         (opts) => `Elemento ${opts.selector} visible`,
     );
 
-export const takeScreenshotAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'take_screenshot',
-        (opts) => ({
-            ...(opts.selector && { selector: opts.selector }),
-            ...(opts.path && { path: opts.path }),
-            fullPage: opts.fullPage,
-            format: opts.format,
-            quality: opts.quality,
-            timeout: opts.timeout,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        (opts) => `Screenshot capturado en formato ${opts.format}`,
-    );
+export const takeScreenshotAction = async (req, res) => {
+    // Declaramos estas variables fuera del try para que sean accesibles en el catch
+    let selector;
+    let finalPath;
+    let finalBrowserId;
+
+    try {
+        // Los valores ya están validados por Joi
+        const { fullPage, format, quality, timeout } = req.body ?? {};
+        // Asignamos las variables de req.body a las declaradas fuera
+        ({ selector, path: finalPath } = req.body ?? {});
+
+        // === INICIO DE OBTENCIÓN DE CONTEXTO ===
+        let { browserId } = req.body ?? {};
+        if (browserId === '' || browserId === null) browserId = undefined;
+
+        // 1. Obtener y Validar la Instancia del Navegador
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res.status(validation.status).json({
+                success: false,
+                message: validation.message,
+            });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+
+        // 2. Obtener la Página Activa (Usando Contexto)
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let page;
+
+        if (pages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No hay páginas activas en el contexto para tomar la captura.',
+                hint: 'Asegúrate de haber abierto una URL con open_url.',
+            });
+        }
+
+        page = pages[pages.length - 1];
+
+        if (page.isClosed && page.isClosed()) {
+            throw new Error('La página objetivo está cerrada.');
+        }
+
+        finalBrowserId = targetBrowserId;
+        const start = Date.now();
+        // === FIN DE OBTENCIÓN DE CONTEXTO ===
+
+        const screenshotOptions = {
+            timeout: timeout,
+            type: format, // 'png' o 'jpeg'
+        };
+        if (format === 'jpeg') {
+            screenshotOptions.quality = quality;
+        }
+
+        let imageBuffer;
+
+        // 3. Ejecución de Playwright y obtención del buffer de imagen
+        if (selector) {
+            console.log(`[INFO] Capturando elemento: ${selector}`);
+            imageBuffer = await page.locator(selector).screenshot(screenshotOptions);
+        } else {
+            screenshotOptions.fullPage = fullPage;
+            console.log(`[INFO] Capturando página. Full Page: ${fullPage}`);
+            imageBuffer = await page.screenshot(screenshotOptions);
+        }
+
+        const duration = Date.now() - start;
+
+        // 4. Manejo de la salida (LÓGICA FINAL Y ESTABLE)
+
+        if (finalPath) {
+            // Caso 1: Ruta especificada por el usuario.
+            if (!path.extname(finalPath)) {
+                finalPath = `${finalPath}.${format}`;
+            }
+        } else {
+            // Caso 2: El usuario NO especificó la ruta -> Usar ruta por defecto y nombre único.
+            const filename = generateUniqueFilename(format);
+            finalPath = path.join(DEFAULT_SCREENSHOT_PATH, filename);
+        }
+
+        // Si hay una ruta de guardado (ya sea por defecto o especificada)
+        if (
+            finalPath.startsWith(DEFAULT_SCREENSHOT_PATH) ||
+            path.isAbsolute(finalPath) ||
+            path.extname(finalPath)
+        ) {
+            // Asegurarse de que el directorio exista (Usando fs síncrono importado)
+            const dir = path.dirname(finalPath);
+            if (!fs.existsSync(dir)) {
+                // <-- fs funcionando correctamente
+                fs.mkdirSync(dir, { recursive: true }); // <-- fs funcionando correctamente
+            }
+            // Guardar la imagen en el sistema de archivos (Usando fs síncrono importado)
+            fs.writeFileSync(finalPath, imageBuffer); // <-- fs funcionando correctamente
+
+            writeTrace({
+                action: 'take_screenshot',
+                selector: selector || 'page',
+                path: finalPath,
+                status: 'success',
+                durationMs: duration,
+                browserId: finalBrowserId,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: `Captura guardada en: ${finalPath}`,
+                path: finalPath,
+                durationMs: duration,
+                browserId: finalBrowserId,
+            });
+        } else {
+            // Caso 3: Devolver la imagen en la respuesta (Base64).
+            const base64Image = imageBuffer.toString('base64');
+
+            writeTrace({
+                action: 'take_screenshot',
+                selector: selector || 'page',
+                status: 'success',
+                durationMs: duration,
+                imageSize: base64Image.length,
+                browserId: finalBrowserId,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: 'Captura generada y devuelta como Base64.',
+                imageFormat: `data:image/${format};base64`,
+                base64Image: base64Image,
+                durationMs: duration,
+                browserId: finalBrowserId,
+            });
+        }
+    } catch (error) {
+        console.error('[ERROR] takeScreenshotAction:', error.message);
+
+        writeTrace({
+            action: 'take_screenshot',
+            error: error.message,
+            status: 'error',
+        });
+
+        const status = error.message.includes('No node found') ? 404 : 500;
+
+        return res.status(status).json({
+            success: false,
+            message: 'Error al tomar la captura de pantalla.',
+            error: error.message,
+            selector: selector,
+        });
+    }
+};
 
 // ==========================================================
 // MANAGE TABS OPTIMIZADO
