@@ -352,6 +352,17 @@ async function executeMcpAction(req, res, toolName, mcpArgsBuilder, successMessa
 //     }
 // }
 
+// Función utilitaria para procesar la cadena de rutas de archivos
+const processFilePaths = (filesString) => {
+    if (!filesString || typeof filesString !== 'string') return [];
+
+    // Divide por coma, limpia espacios y filtra entradas vacías.
+    return filesString
+        .split(',')
+        .map((path) => path.trim())
+        .filter((path) => path.length > 0);
+};
+
 // ==========================================================
 // ACCIONES OPTIMIZADAS
 // ==========================================================
@@ -1918,19 +1929,117 @@ export const submitFormAction = async (req, res) => {
     }
 };
 
-export const uploadFileAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'upload_file',
-        (opts) => ({
-            selector: opts.selector,
-            files: opts.files,
-            timeout: opts.timeout,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        (opts) => `Archivos subidos a ${opts.selector}`,
-    );
+export const uploadFileAction = async (req, res) => {
+    // Declaramos estas variables fuera del try para que sean accesibles en el catch
+    let selector;
+    let files;
+    let finalBrowserId;
+
+    try {
+        // Los valores ya están validados por Joi
+        const { timeout } = req.body ?? {};
+        ({ selector, files } = req.body ?? {});
+
+        // === INICIO DE CORRECCIÓN: Obtener Browser y Page (Reemplazando getActiveBrowserContext) ===
+        let { browserId } = req.body ?? {};
+        if (browserId === '' || browserId === null) browserId = undefined;
+
+        // 1. Obtener y Validar la Instancia del Navegador
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res.status(validation.status).json({
+                success: false,
+                message: validation.message,
+            });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+
+        // 2. Obtener la Página Activa (Usando Contexto)
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let page;
+
+        if (pages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message:
+                    'No hay páginas activas en el contexto para ejecutar la subida de archivos.',
+                hint: 'Asegúrate de haber abierto una URL con open_url.',
+            });
+        }
+
+        // Usamos la última página activa como objetivo
+        page = pages[pages.length - 1];
+
+        if (page.isClosed && page.isClosed()) {
+            throw new Error('La página objetivo está cerrada.');
+        }
+
+        finalBrowserId = targetBrowserId;
+        const start = Date.now();
+        // === FIN DE CORRECCIÓN ===
+
+        // Convertir la cadena de rutas a un array de rutas
+        // Se asume que processFilePaths está definida y es accesible.
+        const filePaths = processFilePaths(files);
+
+        if (filePaths.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No se encontraron rutas de archivo válidas para subir.',
+            });
+        }
+
+        console.log(
+            `[INFO] Subiendo archivos (${filePaths.length}) al selector ${selector}. Rutas: ${filePaths.join('; ')}`,
+        );
+
+        // 2. Ejecución de Playwright: page.setInputFiles()
+        await page.setInputFiles(selector, filePaths, {
+            timeout: timeout,
+        });
+
+        const duration = Date.now() - start;
+
+        writeTrace({
+            action: 'upload_file',
+            selector,
+            files: filePaths,
+            status: 'success',
+            durationMs: duration,
+            browserId: finalBrowserId,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `${filePaths.length} archivo(s) subido(s) correctamente al selector ${selector}.`,
+            uploadedFiles: filePaths,
+            durationMs: duration,
+            browserId: finalBrowserId,
+        });
+    } catch (error) {
+        console.error('[ERROR] uploadFileAction:', error.message);
+
+        writeTrace({
+            action: 'upload_file',
+            error: error.message,
+            status: 'error',
+        });
+
+        // Playwright lanza errores si el selector no es un input file o si la ruta es inaccesible.
+        const status = error.message.includes('No node found') ? 404 : 500;
+
+        return res.status(status).json({
+            success: false,
+            message:
+                'Error al subir el archivo. Verifique el selector y las rutas de los archivos.',
+            error: error.message,
+            selector: selector, // Ahora es accesible
+        });
+    }
+};
 
 export const waitNavigationAction = (req, res) =>
     executeMcpAction(
