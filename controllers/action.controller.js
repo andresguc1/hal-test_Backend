@@ -850,20 +850,154 @@ export const typeTextAction = async (req, res, next) => {
     }
 };
 
-export const scrollAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'scroll',
-        (opts) => ({
-            ...(opts.selector && { selector: opts.selector }),
-            direction: opts.direction,
-            amount: opts.amount,
-            behavior: opts.behavior,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        (opts) => `Scroll ${opts.direction} ejecutado`,
-    );
+export const scrollAction = async (req, res) => {
+    try {
+        const { selector, direction, amount, behavior, browserId: rawBrowserId } = req.body ?? {};
+
+        // === MANEJO DE INSTANCIA DE NAVEGADOR (Asumimos que estas funciones son correctas) ===
+        let browserId = rawBrowserId;
+        if (browserId === '' || browserId === null) browserId = undefined;
+
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res.status(validation.status).json({
+                success: false,
+                message: validation.message,
+            });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let page;
+
+        if (pages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No hay páginas activas en el contexto para ejecutar la acción de scroll.',
+                hint: 'Asegúrate de haber abierto una URL con open_url.',
+            });
+        }
+
+        page = pages[pages.length - 1];
+
+        if (page.isClosed && page.isClosed()) {
+            throw new Error('La página objetivo está cerrada.');
+        }
+
+        const finalBrowserId = targetBrowserId;
+        const start = Date.now();
+        // === FIN DE MANEJO DE INSTANCIA DE NAVEGADOR ===
+
+        let dx = 0;
+        let dy = 0;
+
+        switch (direction) {
+            case 'down':
+                dy = amount;
+                break;
+            case 'up':
+                dy = -amount;
+                break;
+            case 'right':
+                dx = amount;
+                break;
+            case 'left':
+                dx = -amount;
+                break;
+        }
+
+        let message = '';
+
+        if (selector) {
+            // Caso 1: Desplazamiento dentro de un elemento específico
+
+            try {
+                // Esperamos un máximo de 5 segundos para que el elemento aparezca en el DOM
+                await page.waitForSelector(selector, { state: 'attached', timeout: 5000 });
+            } catch (_) {
+                // CORRECCIÓN: Usar '_' en lugar de 'e'
+                // Si el elemento no se encuentra, lanzamos un error claro
+                throw new Error(
+                    `El elemento contenedor no se encontró con el selector: ${selector}.`,
+                );
+            }
+
+            // Usamos page.evaluate() para ejecutar JS que encuentre el elemento y lo desplace.
+            await page.evaluate(
+                ({ selector, dx, dy, behavior }) => {
+                    /* global document */ // CORRECCIÓN: Suprimir el error 'no-undef' para document
+                    const element = document.querySelector(selector);
+
+                    if (!element) {
+                        throw new Error(`Elemento no encontrado con selector: ${selector}`);
+                    }
+
+                    element.scrollBy({
+                        left: dx,
+                        top: dy,
+                        behavior: behavior,
+                    });
+                },
+                { selector, dx, dy, behavior },
+            );
+
+            message = `Desplazamiento de ${amount}px (${direction}) aplicado al elemento: ${selector}.`;
+        } else {
+            // Caso 2: Desplazamiento de la ventana principal
+
+            // Usamos page.evaluate() para desplazar la ventana principal
+            await page.evaluate(
+                ({ dx, dy, behavior }) => {
+                    /* global window */ // CORRECCIÓN: Suprimir el error 'no-undef' para window
+                    window.scrollBy({
+                        left: dx,
+                        top: dy,
+                        behavior: behavior,
+                    });
+                },
+                { dx, dy, behavior },
+            );
+
+            message = `Desplazamiento de la ventana principal por ${amount}px (${direction}).`;
+        }
+
+        const duration = Date.now() - start;
+
+        writeTrace({
+            action: 'scroll',
+            selector: selector || 'window',
+            direction,
+            amount,
+            status: 'success',
+            durationMs: duration,
+            browserId: finalBrowserId,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: message,
+            durationMs: duration,
+            browserId: finalBrowserId,
+        });
+    } catch (error) {
+        console.error('[ERROR] scrollAction:', error.message);
+
+        writeTrace({
+            action: 'scroll',
+            error: error.message,
+            status: 'error',
+        });
+
+        return res.status(500).json({
+            success: false,
+            message: 'Error al ejecutar la acción de desplazamiento.',
+            error: error.message,
+            selector: req.body.selector,
+        });
+    }
+};
 
 export const waitVisibleAction = (req, res) =>
     executeMcpAction(

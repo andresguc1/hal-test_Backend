@@ -17,6 +17,17 @@ export default [
             sourceType: 'module',
             ecmaVersion: 'latest',
         },
+        // AÑADIDO: Regla para resolver el error 'no-unused-vars' en los bloques catch
+        rules: {
+            // Configura no-unused-vars para ignorar las variables de error capturadas
+            'no-unused-vars': [
+                'error',
+                {
+                    // Permite variables de error no utilizadas, como '_' en try...catch
+                    caughtErrors: 'none',
+                },
+            ],
+        },
     },
     // 2. Extiende la configuración recomendada de ESLint
     eslintRecommended.configs.recommended,
