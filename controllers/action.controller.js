@@ -1172,23 +1172,110 @@ export const manageTabsAction = async (req, res, next) => {
 };
 
 // ==========================================================
-// RESTO DE ACCIONES MCP USANDO EL PATRÓN OPTIMIZADO
+// ACCIONES
 // ==========================================================
 
-export const dragDropAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'drag_drop',
-        (opts) => ({
-            sourceSelector: opts.sourceSelector,
-            targetSelector: opts.targetSelector,
-            steps: opts.steps,
-            force: opts.force,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        (opts) => `Drag & Drop de ${opts.sourceSelector} a ${opts.targetSelector}`,
-    );
+export const dragDropAction = async (req, res) => {
+    // Declaramos estas variables fuera del try para que sean accesibles en el catch
+    let sourceSelector;
+    let targetSelector;
+    let finalBrowserId;
+
+    try {
+        // Los valores ya están validados por Joi
+        const { steps, force } = req.body ?? {};
+        ({ sourceSelector, targetSelector } = req.body ?? {}); // Asignación de variables declaradas
+
+        // === INICIO DE CORRECCIÓN: Obtener Browser y Page (Reemplazando getActiveBrowserContext) ===
+        let { browserId } = req.body ?? {};
+        if (browserId === '' || browserId === null) browserId = undefined;
+
+        // 1. Obtener y Validar la Instancia del Navegador
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res.status(validation.status).json({
+                success: false,
+                message: validation.message,
+            });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+
+        // 2. Obtener la Página Activa (Usando Contexto)
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let page;
+
+        if (pages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message:
+                    'No hay páginas activas en el contexto para ejecutar la acción drag and drop.',
+                hint: 'Asegúrate de haber abierto una URL con open_url.',
+            });
+        }
+
+        // Usamos la última página activa como objetivo
+        page = pages[pages.length - 1];
+
+        if (page.isClosed && page.isClosed()) {
+            throw new Error('La página objetivo está cerrada.');
+        }
+
+        finalBrowserId = targetBrowserId; // Asignamos aquí
+        const start = Date.now();
+        // === FIN DE CORRECCIÓN ===
+
+        console.log(
+            `[INFO] Arrastrando ${sourceSelector} a ${targetSelector}. Pasos: ${steps}, Forzar: ${force}`,
+        );
+
+        // 3. Ejecución de Playwright: page.dragAndDrop()
+        await page.dragAndDrop(sourceSelector, targetSelector, {
+            steps: steps,
+            force: force,
+            timeout: 30000,
+        });
+
+        const duration = Date.now() - start;
+
+        writeTrace({
+            action: 'drag_drop',
+            sourceSelector,
+            targetSelector,
+            status: 'success',
+            durationMs: duration,
+            browserId: finalBrowserId,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `Elemento ${sourceSelector} arrastrado y soltado correctamente en ${targetSelector}.`,
+            durationMs: duration,
+            browserId: finalBrowserId,
+        });
+    } catch (error) {
+        console.error('[ERROR] dragDropAction:', error.message);
+
+        writeTrace({
+            action: 'drag_drop',
+            error: error.message,
+            status: 'error',
+        });
+
+        // Si el error indica que no se encontraron los selectores
+        const status = error.message.includes('No node found') ? 404 : 500;
+
+        return res.status(status).json({
+            success: false,
+            message: 'Error al ejecutar la acción de arrastrar y soltar.',
+            error: error.message,
+            sourceSelector: sourceSelector, // Ahora accesibles
+            targetSelector: targetSelector, // Ahora accesibles
+        });
+    }
+};
 
 export const resizeViewportAction = async (req, res, next) => {
     try {
