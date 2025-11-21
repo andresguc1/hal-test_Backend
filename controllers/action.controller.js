@@ -1596,19 +1596,106 @@ export const selectOptionAction = async (req, res) => {
     }
 };
 
-export const submitFormAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'submit_form',
-        (opts) => ({
-            selector: opts.selector,
-            waitForNavigation: opts.waitForNavigation,
-            timeout: opts.timeout,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        (opts) => `Formulario enviado desde ${opts.selector}`,
-    );
+export const submitFormAction = async (req, res) => {
+    try {
+        // Los valores ya están validados por Joi
+        const { selector, waitForNavigation, timeout } = req.body ?? {};
+
+        // === INICIO DE CORRECCIÓN: Obtener Browser y Page (Reemplazando getActiveBrowserContext) ===
+        let { browserId } = req.body ?? {};
+        if (browserId === '' || browserId === null) browserId = undefined;
+
+        // 1. Obtener y Validar la Instancia del Navegador
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res.status(validation.status).json({
+                success: false,
+                message: validation.message,
+            });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+
+        // 2. Obtener la Página Activa (Usando Contexto)
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let page;
+
+        if (pages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No hay páginas activas en el contexto para ejecutar la acción de envío.',
+                hint: 'Asegúrate de haber abierto una URL con open_url.',
+            });
+        }
+
+        // Usamos la última página activa como objetivo
+        page = pages[pages.length - 1];
+
+        if (page.isClosed && page.isClosed()) {
+            throw new Error('La página objetivo está cerrada.');
+        }
+
+        const finalBrowserId = targetBrowserId;
+        const start = Date.now();
+        // === FIN DE CORRECCIÓN ===
+
+        console.log(
+            `[INFO] Intentando enviar formulario/clic en: ${selector}. Esperar navegación: ${waitForNavigation}`,
+        );
+
+        if (waitForNavigation) {
+            // Usamos Promise.all() para ejecutar el clic Y esperar la navegación de forma concurrente
+            await Promise.all([
+                // 1. Esperar la navegación (la condición por defecto es 'load')
+                page.waitForNavigation({ timeout: timeout }),
+                // 2. Ejecutar el clic o el envío del formulario
+                page.click(selector, { timeout: timeout }),
+            ]);
+        } else {
+            // Solo hacer el clic/envío (útil para envíos AJAX)
+            await page.click(selector, { timeout: timeout });
+        }
+
+        const duration = Date.now() - start;
+
+        writeTrace({
+            action: 'submit_form',
+            selector,
+            waitForNavigation,
+            status: 'success',
+            durationMs: duration,
+            browserId: finalBrowserId,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `Formulario/botón de envío (${selector}) activado correctamente.`,
+            navigationOccurred: waitForNavigation,
+            durationMs: duration,
+            browserId: finalBrowserId,
+        });
+    } catch (error) {
+        console.error('[ERROR] submitFormAction:', error.message);
+
+        writeTrace({
+            action: 'submit_form',
+            error: error.message,
+            status: 'error',
+        });
+
+        // Si es un timeout, puede ser por la navegación
+        const status = error.message.includes('Timeout') ? 408 : 500;
+
+        return res.status(status).json({
+            success: false,
+            message: 'Error al enviar el formulario o timeout esperando la navegación.',
+            error: error.message,
+            selector: req.body.selector,
+        });
+    }
+};
 
 export const uploadFileAction = (req, res) =>
     executeMcpAction(
