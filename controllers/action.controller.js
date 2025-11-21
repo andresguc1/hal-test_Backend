@@ -8,7 +8,8 @@ import { chromium } from 'playwright';
 import { devices } from '@playwright/test';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
-import path from 'path';
+import * as path from 'path';
+import { globalStateManager } from '../services/stateManager.js';
 
 // ==========================================================
 // CONFIGURACIÓN Y CONSTANTES
@@ -19,7 +20,8 @@ const MAX_BROWSERS = 10; // Límite para prevenir fugas de memoria
 const TRACE_BATCH_SIZE = 10; // Número de trazas antes de flush
 const TRACE_FLUSH_INTERVAL = 5000; // ms
 const PLAYWRIGHT_DEVICES = devices; // Constante global para los dispositivos
-const DEFAULT_SCREENSHOT_PATH = 'storages/screenshots'; // Ruta por defecto para capturas
+const DEFAULT_SCREENSHOT_PATH = 'storages/screenshots'; // Ruta por defecto para capturas de pantalla
+const DEFAULT_DOM_PATH = 'storages/dom_snapshots'; // Ruta por defecto para capturas de DOM
 
 // Cache de trazas en memoria para escritura batch
 let traceBuffer = [];
@@ -33,6 +35,14 @@ let lastFlushTime = Date.now();
 const generateUniqueFilename = (format) => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     return `screenshot_${timestamp}.${format}`;
+};
+
+/**
+ * Genera un nombre de archivo único basado en la fecha-hora para archivos HTML.
+ */
+const generateUniqueHtmlFilename = () => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    return `dom_snapshot_${timestamp}.html`;
 };
 
 // ==========================================================
@@ -2237,20 +2247,176 @@ export const waitConditionalAction = (req, res) =>
         () => `Condición JavaScript cumplida`,
     );
 
-export const saveDomAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'save_dom',
-        (opts) => ({
-            ...(opts.selector && { selector: opts.selector }),
-            ...(opts.path && { path: opts.path }),
-            ...(opts.variableName && { variableName: opts.variableName }),
-            timeout: opts.timeout,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        () => `DOM guardado`,
-    );
+export const saveDomAction = async (req, res) => {
+    let selector;
+    let filePath; // ✅ CAMBIO: Renombrado de 'path' a 'filePath'
+    let variableName;
+    let finalBrowserId;
+
+    try {
+        const { timeout } = req.body ?? {};
+        // ✅ CAMBIO: Usar 'filePath' en lugar de 'path'
+        ({ selector, path: filePath, variableName } = req.body ?? {});
+
+        // === OBTENCIÓN DE CONTEXTO (Corregido) ===
+        let { browserId } = req.body ?? {};
+        if (browserId === '' || browserId === null) browserId = undefined;
+
+        const validation = validateBrowser(browserId);
+        if (validation.error) {
+            return res.status(validation.status).json({
+                success: false,
+                message: validation.message,
+            });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let page;
+
+        if (pages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No hay páginas activas en el contexto para ejecutar saveDomAction.',
+                hint: 'Asegúrate de haber abierto una URL con open_url.',
+            });
+        }
+
+        page = pages[pages.length - 1];
+
+        if (page.isClosed && page.isClosed()) {
+            throw new Error('La página objetivo está cerrada.');
+        }
+
+        finalBrowserId = targetBrowserId;
+        const start = Date.now();
+        // === FIN DE OBTENCIÓN DE CONTEXTO ===
+
+        let domContent;
+
+        if (selector) {
+            console.log(`[INFO] Obteniendo outerHTML de: ${selector}`);
+            domContent = await page
+                .locator(selector)
+                .evaluate((el) => el.outerHTML, { timeout: timeout });
+        } else {
+            console.log('[INFO] Obteniendo el contenido HTML completo de la página.');
+            domContent = await page.content({ timeout: timeout });
+        }
+
+        const duration = Date.now() - start;
+
+        let message = `Contenido DOM (selector: ${selector || 'page'}) capturado correctamente.`;
+
+        // 3. Manejo de la Salida: Archivo vs. Variable
+
+        // ✅ CAMBIO: Usar 'filePath' en lugar de 'path'
+        const pathProvided = filePath !== undefined;
+
+        if (pathProvided) {
+            // **A. Guardar en Archivo**
+            let finalPath = (filePath || '').trim(); // ✅ CAMBIO: usar filePath
+            const uniqueFilename = generateUniqueHtmlFilename();
+
+            // 1. Si el path está vacío, usamos la ruta por defecto y el nombre único.
+            if (finalPath === '') {
+                finalPath = path.join(DEFAULT_DOM_PATH, uniqueFilename);
+            }
+            // 2. Si es un directorio (o ruta sin extensión), le añadimos el nombre único.
+            else if (!path.extname(finalPath)) {
+                finalPath = path.join(finalPath, uniqueFilename);
+            }
+            // 3. Si es un nombre de archivo relativo (ej: 'report.html') sin directorio,
+            // lo guardamos en el directorio por defecto.
+            else if (path.dirname(finalPath) === '.') {
+                finalPath = path.join(DEFAULT_DOM_PATH, finalPath);
+            }
+            // Si es un path absoluto o relativo con directorio, se usa tal cual.
+
+            // Usamos fs síncrono
+            const dir = path.dirname(finalPath);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+
+            fs.writeFileSync(finalPath, domContent, 'utf8');
+            message = `Contenido DOM guardado en: ${finalPath}`;
+
+            writeTrace({
+                action: 'save_dom',
+                selector: selector || 'page',
+                path: finalPath,
+                status: 'success',
+                durationMs: duration,
+                browserId: finalBrowserId,
+            });
+
+            // Si se especificó también variableName, guardamos en la variable (No exclusividad total)
+            if (variableName) {
+                globalStateManager.setVariable(variableName, domContent);
+                message += ` y en la variable: ${variableName}.`;
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: message,
+                path: finalPath,
+                durationMs: duration,
+                browserId: finalBrowserId,
+            });
+        } else if (variableName) {
+            // **B. Guardar en Variable de Flujo (Exclusivo si path no se especificó)**
+            globalStateManager.setVariable(variableName, domContent);
+
+            message = `Contenido DOM guardado en la variable: ${variableName} (${domContent.length} bytes).`;
+
+            writeTrace({
+                action: 'save_dom',
+                selector: selector || 'page',
+                variableName: variableName,
+                status: 'success',
+                durationMs: duration,
+                browserId: finalBrowserId,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: message,
+                variableName: variableName,
+                domContentLength: domContent.length,
+                snippet: domContent.substring(0, 100) + '...',
+                durationMs: duration,
+                browserId: finalBrowserId,
+            });
+        } else {
+            // Debe haber una variable de destino o una ruta de archivo.
+            return res.status(400).json({
+                success: false,
+                message: 'Falta path o variableName. Al menos uno debe ser proporcionado.',
+            });
+        }
+    } catch (error) {
+        console.error('[ERROR] saveDomAction:', error.message);
+
+        writeTrace({
+            action: 'save_dom',
+            error: error.message,
+            status: 'error',
+        });
+
+        const status = error.message.includes('No node found') ? 404 : 500;
+
+        return res.status(status).json({
+            success: false,
+            message: 'Error al capturar el contenido DOM.',
+            error: error.message,
+            selector: selector,
+        });
+    }
+};
 
 export const logErrorsAction = (req, res) =>
     executeMcpAction(
