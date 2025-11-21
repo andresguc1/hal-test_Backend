@@ -22,6 +22,7 @@ const TRACE_FLUSH_INTERVAL = 5000; // ms
 const PLAYWRIGHT_DEVICES = devices; // Constante global para los dispositivos
 const DEFAULT_SCREENSHOT_PATH = 'storages/screenshots'; // Ruta por defecto para capturas de pantalla
 const DEFAULT_DOM_PATH = 'storages/dom_snapshots'; // Ruta por defecto para capturas de DOM
+const DEFAULT_ERROR_LOG_PATH = 'storages/browser_logs/errors.log'; // Ruta por defecto para logs de errores
 
 // Cache de trazas en memoria para escritura batch
 let traceBuffer = [];
@@ -43,6 +44,54 @@ const generateUniqueFilename = (format) => {
 const generateUniqueHtmlFilename = () => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     return `dom_snapshot_${timestamp}.html`;
+};
+
+/**
+ * Maneja los eventos de error y consola del navegador, escribiendo logs.
+ * @param {string} type - Tipo de evento ('error' o 'console').
+ * @param {Error|import('playwright').ConsoleMessage} event - El objeto de error o mensaje de consola.
+ * @param {boolean} logToFile - Si se debe escribir en un archivo.
+ * @param {string} finalPath - La ruta del archivo de log.
+ */
+const handleBrowserEvent = (type, event, logToFile, finalPath) => {
+    const timestamp = new Date().toISOString();
+    let logMessage;
+    let consoleOutput;
+
+    if (type === 'error') {
+        const error = event;
+        logMessage = `[${timestamp}] [PAGE ERROR] ${error.stack || error.message}\n`;
+        consoleOutput = `[Browser Error] ${error.message}`;
+    } else if (type === 'console') {
+        const msg = event;
+        const msgText = msg.text();
+        const msgLocation = msg.location().url;
+
+        logMessage = `[${timestamp}] [CONSOLE ${msg.type().toUpperCase()}] ${msgText} (${msgLocation})\n`;
+        consoleOutput = `[Console ${msg.type().toUpperCase()}] ${msgText}`;
+    } else {
+        return; // Ignorar otros tipos
+    }
+
+    // 1. Escribir a la consola del backend (siempre)
+    console.log(consoleOutput);
+
+    // 2. Escribir a archivo (si se solicita)
+    if (logToFile && finalPath) {
+        try {
+            const dir = path.dirname(finalPath);
+            // Crea el directorio si no existe (Requiere 'import * as path from 'path'; y 'import * as fs from 'fs';')
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+            // Escribe el log de forma asíncrona, sin esperar la respuesta
+            fs.appendFile(finalPath, logMessage, (err) => {
+                if (err) console.error(`[ERROR] Falló la escritura del log: ${finalPath}`, err);
+            });
+        } catch (error) {
+            console.error('[ERROR] Error al gestionar la ruta de log:', error.message);
+        }
+    }
 };
 
 // ==========================================================
@@ -2418,19 +2467,107 @@ export const saveDomAction = async (req, res) => {
     }
 };
 
-export const logErrorsAction = (req, res) =>
-    executeMcpAction(
-        req,
-        res,
-        'log_errors',
-        (opts) => ({
-            logToFile: opts.logToFile,
-            ...(opts.filePath && { filePath: opts.filePath }),
-            timeout: opts.timeout,
-            ...(opts.browserId && { browserId: opts.browserId }),
-        }),
-        () => `Escucha de errores iniciada`,
-    );
+export const logErrorsAction = async (req, res) => {
+    // Asegúrate de que handleBrowserEvent esté definida arriba
+
+    // Asumo que getOrCreateContext, validateBrowser y writeTrace están disponibles
+    let browserId;
+
+    try {
+        const { logToFile, filePath, timeout } = req.body ?? {};
+
+        // 1. Obtener Page/Context usando la nueva lógica
+        let { browserId: inputBrowserId } = req.body ?? {};
+        if (inputBrowserId === '' || inputBrowserId === null) inputBrowserId = undefined;
+
+        const validation = validateBrowser(inputBrowserId);
+        if (validation.error) {
+            return res.status(validation.status).json({
+                success: false,
+                message: validation.message,
+            });
+        }
+
+        const targetBrowserId = validation.browserId;
+        const browserInstance = validation.entry.browser || validation.entry;
+
+        const context = await getOrCreateContext(browserInstance);
+        const pages = context.pages();
+        let page;
+
+        if (pages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No hay páginas activas en el contexto para registrar errores.',
+            });
+        }
+
+        page = pages[pages.length - 1];
+        browserId = targetBrowserId;
+        const start = Date.now();
+
+        // Determinar la ruta final (si aplica)
+        const finalPath = logToFile ? filePath || DEFAULT_ERROR_LOG_PATH : null;
+
+        // 2. Registrar Listeners de Playwright
+
+        // Limpiar listeners si la acción se llama varias veces, si tu framework lo soporta
+        // page.removeAllListeners('pageerror');
+        // page.removeAllListeners('console');
+
+        // Listener para errores de JS (errores no capturados en el código de la página)
+        page.on('pageerror', (err) => {
+            handleBrowserEvent('error', err, logToFile, finalPath);
+        });
+
+        // Listener para mensajes de la consola (log, error, warn, info, etc.)
+        page.on('console', (msg) => {
+            // Solo logueamos mensajes de error, advertencia o log para mantenerlo limpio
+            const type = msg.type();
+            if (['error', 'warning', 'log'].includes(type)) {
+                handleBrowserEvent('console', msg, logToFile, finalPath);
+            }
+        });
+
+        // 3. Manejo de la Duración y Respuesta
+
+        const duration = Date.now() - start;
+        const message = logToFile
+            ? `Escucha de errores de consola y JS iniciada. Registrando en: ${finalPath}`
+            : `Escucha de errores de consola y JS iniciada. Solo se registrará en la consola del backend.`;
+
+        writeTrace({
+            action: 'log_errors',
+            logToFile,
+            filePath: finalPath,
+            timeoutDuration: timeout,
+            status: 'success',
+            durationMs: duration,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: message,
+            logPath: finalPath,
+            timeoutDuration: timeout,
+            browserId,
+        });
+    } catch (error) {
+        console.error('[ERROR] logErrorsAction:', error.message);
+
+        writeTrace({
+            action: 'log_errors',
+            error: error.message,
+            status: 'error',
+        });
+
+        return res.status(500).json({
+            success: false,
+            message: 'Error al configurar los listeners de errores del navegador.',
+            error: error.message,
+        });
+    }
+};
 
 export const listenEventsAction = (req, res) =>
     executeMcpAction(
